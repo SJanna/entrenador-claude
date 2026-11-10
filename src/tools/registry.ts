@@ -16,12 +16,18 @@ import { GarminCliente } from "../garmin/cliente";
 import { IntervalsClient } from "../intervals/client";
 import { PublicoTools } from "./publicoTools";
 import { PublicoStore } from "../publico/store";
+import { CLAVES_HITO, HITOS } from "../publico/compute";
 import { briefing } from "./briefing";
 import { leerCalendario } from "../garmin/calendario";
 import { HistoricoTools } from "./historicoTools";
 import { DiarioTools } from "./diarioTools";
 import { DiarioStore } from "../diario/store";
 import { HistoricoStore } from "../historico/store";
+
+/** Hitos que no salen de los datos (ni distancia, ni duración, ni la referencia): se marcan a mano. */
+const HITOS_MANUALES = HITOS.filter((h) => h.km === null && !("segundos" in h) && h.clave !== "supera_referencia").map(
+  (h) => h.clave,
+);
 
 export interface ToolDefinition {
   name: string;
@@ -499,8 +505,9 @@ export function buildTools(
         "congela ese día para que la gráfica compare con el plan original y no con el " +
         "corregido (el propio lunes solo se acepta si la semana aún no tenía plan). Todo o " +
         "nada: si un cambio no vale, no se escribe ninguno. Sin argumentos devuelve lo que " +
-        "hay. Los hitos por distancia (>referencia, 42,2, 50, 70 y 120 km) caen solos; a " +
-        "mano solo la primera salida de noche, o uno que el GPS midió corto.",
+        "hay. Los hitos por distancia (>referencia, 42,2, 50, 70 y 120 km) y el de 3 horas " +
+        `caen solos; a mano solo los que no salen de los datos (${HITOS_MANUALES.join(", ")}), ` +
+        "o uno que el GPS midió corto.",
       inputSchema: {
         type: "object",
         properties: {
@@ -543,7 +550,7 @@ export function buildTools(
             type: "array",
             description:
               "Hitos marcados a mano: [{clave, fecha: 'YYYY-MM-DD' o null para quitarlo}]. " +
-              "Claves: supera_referencia, maraton, km50, km70, km120, noche.",
+              `Claves: ${CLAVES_HITO.join(", ")}.`,
             items: {
               type: "object",
               properties: { clave: { type: "string" }, fecha: { type: ["string", "null"] } },

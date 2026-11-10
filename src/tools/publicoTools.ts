@@ -4,8 +4,8 @@
  *  - Los km de carrera planificados de cada semana. Garmin planifica por tiempo,
  *    así que este número no existe en ningún otro sitio. Se congela el lunes.
  *  - Las fechas de las temporadas y el día D, que se mueven si falla un gate.
- *  - Los hitos manuales: la primera salida de noche, o una maratón que el GPS
- *    midió en 42,1 km.
+ *  - Los hitos manuales: los que no salen de los datos (noche, sol de mediodía,
+ *    secreto), o una maratón que el GPS midió en 42,1 km.
  *
  * Todo o nada, como contract_commit: si un cambio no vale, no se escribe
  * ninguno. Sin argumentos, enseña lo que hay.
@@ -218,7 +218,7 @@ export class PublicoTools {
     }
     lineas.push(
       "",
-      "Los hitos por distancia caen solos con la primera actividad de carrera que los alcanza " +
+      "Los hitos por distancia y el de 3 horas caen solos con la primera actividad de carrera que los alcanza " +
         "desde el inicio de la T1; marcarlos a mano solo hace falta si el GPS se quedó corto.",
     );
     return lineas.join("\n");
