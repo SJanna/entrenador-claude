@@ -210,10 +210,11 @@ function kmTexto(km: number): string {
 
 export function calcularProgreso(e: EntradaProgreso): ProgresoPublico {
   const temporadas = [...e.temporadas].sort((a, b) => a.numero - b.numero);
-  const t0 = temporadas[0];
   const t1 = temporadas.find((t) => t.numero === 1);
   const fin = temporadas[temporadas.length - 1]?.hasta ?? e.diaD;
-  const inicioSerie = t0?.desde ?? e.hoy;
+  // La serie cuenta desde la T1 (decisión del atleta, 10/11/2026): el Prólogo
+  // (T0) está en el calendario, pero no suma km, semanas, sesiones ni récord.
+  const inicioSerie = t1?.desde ?? temporadas[0]?.desde ?? e.hoy;
   const finSerie = e.hoy < fin ? e.hoy : fin;
 
   const carrera = e.actividades
@@ -365,7 +366,7 @@ export function calcularProgreso(e: EntradaProgreso): ProgresoPublico {
       : null,
     test_pulso_fijo: conDatos ? pulsoFijo(carreraSesiones(e.actividades, inicioSerie, ayer), zonas) : null,
     prediccion: conDatos
-      ? prediccion(carreraSesiones(e.actividades, addDays(inicioSerie, -VENTANA_PREDICCION), ayer), inicioSerie, ayer, zonas)
+      ? prediccion(carreraSesiones(e.actividades, inicioSerie, ayer), inicioSerie, ayer, zonas)
       : null,
     ruta: null,
     live: null,
