@@ -78,12 +78,58 @@ describe("km por semana", () => {
     expect(semana(r, "2026-12-14").km_max).toBe(16);
   });
 
-  it("empieza en la semana de la T0 sin contar lo anterior a su primer día", () => {
-    // La T0 empieza en martes: el lunes 02/11 es antes del episodio 0.
-    const r = calcularProgreso(entrada({ actividades: [run("2026-11-02", 8), run("2026-11-03", 5)] }));
-    expect(r.semanas[0]!.lunes).toBe("2026-11-02");
+  it("empieza en la T1: el Prólogo (T0) no suma", () => {
+    const r = calcularProgreso(entrada({ actividades: [run("2026-12-13", 8), run("2026-12-14", 5)] }));
+    expect(r.semanas[0]!.lunes).toBe("2026-12-14");
     expect(r.semanas[0]!.km).toBe(5);
-    expect(r.semanas[0]!.temporada).toBe(0);
+    expect(r.semanas[0]!.temporada).toBe(1);
+  });
+
+  it("con la T1 en martes (1/12), la semana arranca el lunes pero solo suma desde el martes", () => {
+    // Las fechas de producción: el Prólogo acaba el 30/11 y Del Mar a la Cima (29/11) es del Prólogo.
+    const temporadas: Temporada[] = [
+      { numero: 0, nombre: "Prólogo", desde: "2026-10-05", hasta: "2026-11-30" },
+      { numero: 1, nombre: "Base", desde: "2026-12-01", hasta: "2027-03-15" },
+      { numero: 2, nombre: "Durabilidad", desde: "2027-03-16", hasta: "2027-07-15" },
+      { numero: 3, nombre: "Específica", desde: "2027-07-16", hasta: "2027-10-24" },
+      { numero: 4, nombre: "Día D", desde: "2027-10-25", hasta: "2027-11-14" },
+    ];
+    const aerobica = (fecha: string, km: number, tipo = "Run"): ActividadKm => ({
+      fecha, tipo, km, categoria: "carrera", segundos: km * 480, fcMedia: 140, fcMax: 160, gap: 2.2, temp: 30,
+    });
+    const r = calcularProgreso(
+      entrada({
+        hoy: "2026-12-04",
+        diaD: "2027-11-14",
+        temporadas,
+        cumplimientoHasta: "2026-12-03",
+        actividades: [aerobica("2026-11-29", 25.5, "TrailRun"), aerobica("2026-11-30", 5), aerobica("2026-12-01", 6)],
+        programadas: [
+          { fecha: "2026-11-30", cumplida: true },
+          { fecha: "2026-12-01", cumplida: true },
+          { fecha: "2026-12-02", cumplida: false },
+        ],
+      }),
+    );
+    expect(r.semanas).toHaveLength(1);
+    expect(r.semanas[0]).toMatchObject({ lunes: "2026-11-30", temporada: 1, km: 6, km_max: 6, programadas: 2, cumplidas: 1 });
+    expect(r.tirada_larga).toEqual({ km: 6, fecha: "2026-12-01" });
+    expect(r.totales).toMatchObject({ km: 6, sesiones: 1, desde: "2026-12-01" });
+    expect(r.cumplimiento.total).toEqual({ programadas: 2, cumplidas: 1, pct: 50 });
+    // La predicción tampoco mira el Prólogo: sin una tirada aeróbica de 10 km en la T1, no hay.
+    expect(r.prediccion).toBeNull();
+    // El Prólogo sí es la marca previa a la T1.
+    expect(r.referencia).toEqual({ km: 25.5, fecha: "2026-11-29" });
+    expect(erroresPublicos(r)).toEqual([]);
+  });
+
+  it("antes de la T1 no hay semanas que contar", () => {
+    const r = calcularProgreso(entrada({ hoy: "2026-11-20", actividades: [run("2026-11-10", 12)] }));
+    expect(r.semanas).toEqual([]);
+    expect(r.tirada_larga).toBeNull();
+    expect(r.totales).toBeNull();
+    expect(r.temporada_actual).toBe(0);
+    expect(erroresPublicos(r)).toEqual([]);
   });
 
   it("enseña el plan tal como quedó, y null si la semana no lo tenía", () => {
@@ -115,8 +161,8 @@ describe("tirada larga e hitos", () => {
     const r = calcularProgreso(entrada({ actividades: historico }));
     expect(r.referencia).toEqual({ km: 31.1, fecha: "2026-01-31" });
     expect(r.hitos.find((h) => h.clave === "supera_referencia")!.etiqueta).toBe("Más de 31,1 km");
-    // La tirada larga es la de la serie pública (desde la T0), no la histórica.
-    expect(r.tirada_larga).toEqual({ km: 25.5, fecha: "2026-11-29" });
+    // La tirada larga es la de la serie pública (desde la T1): lo del Prólogo no cuenta.
+    expect(r.tirada_larga).toBeNull();
   });
 
   it("un hito cae con la primera actividad que lo alcanza desde la T1", () => {
@@ -228,7 +274,7 @@ describe("racha de semanas", () => {
 });
 
 describe("cumplimiento", () => {
-  it("cuenta por semana y separa lo de la T1", () => {
+  it("cuenta por semana, desde la T1", () => {
     const r = calcularProgreso(
       entrada({
         programadas: [
@@ -240,8 +286,10 @@ describe("cumplimiento", () => {
         ],
       }),
     );
-    expect(semana(r, "2026-12-07")).toMatchObject({ programadas: 2, cumplidas: 1 });
-    expect(r.cumplimiento.total).toEqual({ programadas: 5, cumplidas: 3, pct: 60 });
+    // Lo del Prólogo (semana del 07/12) no cuenta: el total es lo de la T1.
+    expect(r.semanas.find((x) => x.lunes === "2026-12-07")).toBeUndefined();
+    expect(semana(r, "2026-12-14")).toMatchObject({ programadas: 3, cumplidas: 2 });
+    expect(r.cumplimiento.total).toEqual({ programadas: 3, cumplidas: 2, pct: 67 });
     expect(r.cumplimiento.desde_t1).toEqual({ programadas: 3, cumplidas: 2, pct: 67 });
     expect(r.cumplimiento.hasta).toBe("2026-12-29");
   });
@@ -367,7 +415,7 @@ describe("ayer, la semana día a día y los totales", () => {
         { deporte: "fuerza", km: null, segundos: 1500, ritmo: null, fc_media: null, fc_max: null, temp: null },
       ],
     });
-    expect(r.totales).toEqual({ km: 8, horas: 1.3, sesiones: 2, desde: "2026-11-03" });
+    expect(r.totales).toEqual({ km: 8, horas: 1.3, sesiones: 2, desde: "2026-12-14" });
   });
 
   it("caminatas, terapia y otros deportes no son sesiones (pero los km de carrera cuentan)", () => {
