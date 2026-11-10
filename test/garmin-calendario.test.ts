@@ -100,15 +100,14 @@ describe("leer el calendario", () => {
     expect(calendario.items).toHaveLength(1);
   });
 
-  it("el vacío se dice, y se recuerda que hay otro calendario", async () => {
+  it("el vacío se dice; el otro calendario solo se recuerda si hay intervals", async () => {
     const { falso } = cliente({});
-    const texto = formatearCalendario(
-      await leerCalendario(falso, "2026-01-01", "2026-01-07"),
-      "2026-01-01",
-      "2026-01-07",
-    );
-    expect(texto).toContain("está vacío");
-    expect(texto).toContain("NO se ve en list_events");
+    const cal = await leerCalendario(falso, "2026-01-01", "2026-01-07");
+    const solo = formatearCalendario(cal, "2026-01-01", "2026-01-07");
+    expect(solo).toContain("está vacío");
+    expect(solo).not.toContain("list_events");
+    const conIntervals = formatearCalendario(cal, "2026-01-01", "2026-01-07", false, true);
+    expect(conIntervals).toContain("NO se ve en list_events");
   });
 });
 

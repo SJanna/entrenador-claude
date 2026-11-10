@@ -325,3 +325,43 @@ describe("programar, listar y borrar", () => {
     expect(llamadas).toHaveLength(0);
   });
 });
+
+describe("quitar una fecha del calendario", () => {
+  const CITA = {
+    workoutScheduleId: 1836565907,
+    calendarDate: "2026-11-11",
+    workout: { workoutId: 1704873617, workoutName: "Caminata 20 min (barrio)" },
+  };
+
+  it("sin confirm no quita nada: dice qué entreno y qué día", async () => {
+    const { llamadas, tools } = cliente([[/schedule\/1836565907/, { cuerpo: CITA }]]);
+    const texto = await tools.desprogramar({ schedule_id: 1836565907 });
+    expect(texto).toContain("Sin quitar");
+    expect(texto).toContain("«Caminata 20 min (barrio)» el 2026-11-11");
+    expect(texto).toContain("entreno 1704873617");
+    expect(llamadas.every((l) => l.metodo !== "DELETE")).toBe(true);
+  });
+
+  it("con confirm borra la programación, no el entreno", async () => {
+    const { llamadas, tools } = cliente([[/schedule\/1836565907/, { cuerpo: CITA }]]);
+    const texto = await tools.desprogramar({ schedule_id: 1836565907, confirm: true });
+    const borrado = llamadas.find((l) => l.metodo === "DELETE");
+    expect(borrado?.ruta).toBe("/workout-service/schedule/1836565907");
+    expect(llamadas.some((l) => /workout\/1704873617/.test(l.ruta))).toBe(false);
+    expect(texto).toContain("Quitado del calendario");
+    expect(texto).toContain("sus otras fechas");
+  });
+
+  it("un id que no es de una programación no borra nada", async () => {
+    const { llamadas, tools } = cliente([[/schedule\/999/, { cuerpo: { workoutId: 999 } }]]);
+    const texto = await tools.desprogramar({ schedule_id: 999, confirm: true });
+    expect(texto).toMatch(/^Error: Garmin no reconoce 999 como una programación/);
+    expect(llamadas.every((l) => l.metodo !== "DELETE")).toBe(true);
+  });
+
+  it("sin id no sale a Garmin", async () => {
+    const { llamadas, tools } = cliente([]);
+    expect(await tools.desprogramar({})).toMatch(/^Error: Falta 'schedule_id'/);
+    expect(llamadas).toHaveLength(0);
+  });
+});

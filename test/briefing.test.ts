@@ -53,7 +53,7 @@ describe("briefing", () => {
       {},
     );
     expect(t).toMatch(/SIN NADA ESCRITO: dom 08\/11, jue 12\/11, vie 13\/11/);
-    expect(t).toMatch(/PROGRAMADO EN LOS DOS CALENDARIOS: lun 09\/11/);
+    expect(t).toMatch(/MISMA SESIÓN ESCRITA DOS VECES \(o en los dos calendarios\): lun 09\/11/);
     expect(t).toMatch(/CARGA DE LAS ÚLTIMAS SEMANAS/);
   });
 
@@ -64,8 +64,28 @@ describe("briefing", () => {
       }),
       { days_back: 0 },
     );
-    expect(t).not.toMatch(/PROGRAMADO EN LOS DOS/);
+    expect(t).not.toMatch(/DOS VECES/);
     expect(t).toMatch(/== 4 · CALENDARIOS 2026-11-07 →/); // days_back 0 es 0, no 7
+  });
+
+  it("varias sesiones distintas el mismo día no son un doble; la misma dos veces, sí", async () => {
+    const cal: Calendario = {
+      items: [
+        item("2026-11-09", { titulo: "Caminata 20 min", scheduleId: 11 }),
+        item("2026-11-09", { titulo: "Trote 20 min", scheduleId: 12 }),
+        item("2026-11-09", { titulo: "Fuerza (casa)", scheduleId: 13 }),
+        item("2026-11-10", { titulo: "Caminata 20 min", scheduleId: 21 }),
+        item("2026-11-10", { titulo: "Caminata 20 min", scheduleId: 22 }),
+      ],
+      fallos: [],
+      recortado: false,
+      claves: {},
+    };
+    const t = await briefing(fuentes({ calendarioGarmin: async () => cal }), {});
+    expect(t).toMatch(/MISMA SESIÓN ESCRITA DOS VECES: mar 10\/11\./);
+    expect(t).not.toMatch(/DOS VECES[^\n]*lun 09\/11/);
+    expect(t).not.toMatch(/dos calendarios/);
+    expect(t).toMatch(/Programado en Garmin de hoy al vie 13\/11: 5 entrenos\./);
   });
 
   it("lo que falla sale como NO LEÍDO y no se dan días por vacíos", async () => {

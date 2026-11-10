@@ -36,6 +36,12 @@ export interface DiaBienestar {
   minutosIntensidad: number | null;
 
   sueñoSegundos: number | null;
+  /**
+   * Siestas del día, aparte del sueño de la noche. Garmin no las suma a
+   * `sleepTimeSeconds`, pero sí cuentan para recuperar (el readiness lo dice:
+   * BOOSTED_BY_NAPPING), así que leer solo la noche infravalora el día.
+   */
+  siestaSegundos: number | null;
   sueñoProfundo: number | null;
   sueñoLigero: number | null;
   sueñoRem: number | null;
@@ -85,7 +91,7 @@ function diaVacio(fecha: string): DiaBienestar {
     fallos: [],
     pasos: null, fcReposo: null, estresMedio: null,
     bodyBatteryAlto: null, bodyBatteryBajo: null, minutosIntensidad: null,
-    sueñoSegundos: null, sueñoProfundo: null, sueñoLigero: null, sueñoRem: null,
+    sueñoSegundos: null, siestaSegundos: null, sueñoProfundo: null, sueñoLigero: null, sueñoRem: null,
     sueñoDespierto: null, sueñoPuntuacion: null, sueñoCalidad: null,
     spo2Medio: null, respiracionMedia: null,
     readiness: null, readinessNivel: null, readinessFrase: null, recuperacionMin: null,
@@ -170,6 +176,7 @@ export async function leerDia(
 
   const s = objeto(objeto(sueño).dailySleepDTO);
   dia.sueñoSegundos = numero(s.sleepTimeSeconds);
+  dia.siestaSegundos = siestasDe(objeto(sueño), s);
   dia.sueñoProfundo = numero(s.deepSleepSeconds);
   dia.sueñoLigero = numero(s.lightSleepSeconds);
   dia.sueñoRem = numero(s.remSleepSeconds);
@@ -225,10 +232,37 @@ function columna(valor: string, ancho: number): string {
   return valor.padStart(ancho);
 }
 
+/**
+ * Segundos de siesta. Garmin los da de dos formas según la versión: una lista
+ * `dailyNapDTOS` con cada siesta, o un total `napTimeSeconds` dentro del sueño.
+ * Se prefiere la lista (es el detalle); 0 se queda como «sin siesta».
+ */
+export function siestasDe(
+  respuesta: Record<string, unknown>,
+  dto: Record<string, unknown>,
+): number | null {
+  const lista = respuesta.dailyNapDTOS ?? dto.dailyNapDTOS;
+  if (Array.isArray(lista) && lista.length) {
+    const total = lista.reduce<number>(
+      (suma, n) => suma + (numero(objeto(n).napTimeSec ?? objeto(n).napTimeSeconds) ?? 0),
+      0,
+    );
+    if (total > 0) return total;
+  }
+  const total = numero(dto.napTimeSeconds);
+  return total !== null && total > 0 ? total : null;
+}
+
+/** Sueño de 24 h: noche más siestas. null si no hay ni lo uno ni lo otro. */
+export function sueñoTotal(d: Pick<DiaBienestar, "sueñoSegundos" | "siestaSegundos">): number | null {
+  if (d.sueñoSegundos === null && d.siestaSegundos === null) return null;
+  return (d.sueñoSegundos ?? 0) + (d.siestaSegundos ?? 0);
+}
+
 /** Tabla de una línea por día: lo que se mira antes de programar. */
 export function formatearDias(dias: DiaBienestar[]): string {
   const lineas = [
-    "fecha        readi  BB↑/↓    sueño  p.sue   HRV  FCrep  estrés   pasos",
+    "fecha        readi  BB↑/↓    noche  siesta  total  p.sue   HRV  FCrep  estrés   pasos",
     ...dias.map((d) =>
       [
         d.fecha,
@@ -240,6 +274,8 @@ export function formatearDias(dias: DiaBienestar[]): string {
           8,
         ),
         columna(horas(d.sueñoSegundos), 8),
+        columna(horas(d.siestaSegundos), 7),
+        columna(horas(sueñoTotal(d)), 6),
         columna(num(d.sueñoPuntuacion), 6),
         columna(num(d.hrvNoche), 5),
         columna(num(d.fcReposo), 6),
@@ -268,6 +304,10 @@ export function formatearDias(dias: DiaBienestar[]): string {
           }${unico.recuperacionMin !== null ? ` · recuperación ${Math.round(unico.recuperacionMin / 60)} h` : ""}`
         : "",
       fases.length ? `Sueño: ${fases.join(" · ")}${unico.sueñoCalidad ? ` · ${unico.sueñoCalidad}` : ""}` : "",
+      unico.siestaSegundos !== null
+        ? `Sueño en 24 h: noche ${horas(unico.sueñoSegundos)} + siesta ${horas(unico.siestaSegundos)} = ` +
+          `${horas(sueñoTotal(unico))}. La «p.sue» puntúa solo la noche.`
+        : "",
       unico.spo2Medio !== null || unico.respiracionMedia !== null
         ? `SpO₂ ${num(unico.spo2Medio)} % · respiración ${num(unico.respiracionMedia, 1)} rpm`
         : "",

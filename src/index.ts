@@ -10,7 +10,14 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env } from "./env";
-import { ConfigError, configFromEnv, configParaEntrenador, timingSafeEqual, todayInTz } from "./env";
+import {
+  ConfigError,
+  configFromEnv,
+  configParaEntrenador,
+  paginaPublicaActiva,
+  timingSafeEqual,
+  todayInTz,
+} from "./env";
 import { buildTools, serverInstructions } from "./tools/registry";
 import { handleMcpRequest } from "./mcp/server";
 import { apiApp } from "./web/api";
@@ -144,7 +151,7 @@ function despacharMcp(c: Context<{ Bindings: Env }>): Promise<Response> {
     version: "1.1.0",
     instructions: serverInstructions({
       intervals: config.intervals,
-      publico: Boolean(c.env.PUBLICO),
+      publico: paginaPublicaActiva(c.env),
     }),
     tools: buildTools(c.env, config, (p) => c.executionCtx.waitUntil(p)),
   });

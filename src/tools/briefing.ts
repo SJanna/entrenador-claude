@@ -96,15 +96,16 @@ export function huecosYDobles(
     const g = garmin.some((p) => p.fecha === d && p.cuenta);
     const i = intervals?.some((p) => p.fecha === d && p.cuenta) ?? false;
     if (!g && !i) vacios.push(d);
-    // intervals EMPUJA sus entrenos al calendario de Garmin, así que la misma
-    // sesión sale en los dos con el mismo nombre: eso no es un doble. Lo es que
-    // Garmin tenga dos programadas, o una de intervals que no esté en Garmin
-    // con ese nombre habiendo otra programada allí.
+    // Varias sesiones el mismo día es lo normal (caminata + trote + fuerza): eso
+    // no es un doble. Lo es la MISMA sesión dos veces en Garmin, y con intervals
+    // una suya que no esté en Garmin con ese nombre habiendo otra programada
+    // allí (intervals empuja sus entrenos a Garmin con el mismo nombre).
     const gNombres = garmin
       .filter((p) => p.fecha === d && p.cuenta && !p.hecho)
       .map((p) => p.nombre);
+    const repetida = gNombres.some((n, k) => gNombres.indexOf(n) !== k);
     const iNombres = (intervals ?? []).filter((p) => p.fecha === d && p.cuenta).map((p) => p.nombre);
-    if (gNombres.length >= 2 || (gNombres.length >= 1 && iNombres.some((n) => !gNombres.includes(n)))) {
+    if (repetida || (gNombres.length >= 1 && iNombres.some((n) => !gNombres.includes(n)))) {
       dobles.push(d);
     }
   }
@@ -194,7 +195,17 @@ export async function briefing(
       lineas.push(`${diaLegible(d)}${marca}: ${del.length ? del.map((p) => p.texto).join(" · ") : "—"}`);
     }
     const proximos = huecosYDobles(hoy, addDays(hoy, 6), garmin, intervals);
+    const finSemana = addDays(hoy, 6);
+    const programados = garmin.filter(
+      (p) => p.fecha >= hoy && p.fecha <= finSemana && p.cuenta && !p.hecho,
+    ).length;
     lineas.push("");
+    // El recuento va siempre: si el calendario se leyó a medias, un «0» al lado
+    // de una semana que sí está escrita se ve, y un «—» por día no.
+    lineas.push(
+      `Programado en Garmin de hoy al ${diaLegible(finSemana)}: ${programados} ` +
+        `entreno${programados === 1 ? "" : "s"}.`,
+    );
     lineas.push(
       proximos.vacios.length
         ? `⚠ PRÓXIMOS 7 DÍAS SIN NADA ESCRITO: ${proximos.vacios.map(diaLegible).join(", ")}. ` +
@@ -203,8 +214,9 @@ export async function briefing(
     );
     if (proximos.dobles.length) {
       lineas.push(
-        `⚠ PROGRAMADO EN LOS DOS CALENDARIOS: ${proximos.dobles.map(diaLegible).join(", ")}. ` +
-          "Comprueba que no es la misma sesión escrita dos veces.",
+        `⚠ LA MISMA SESIÓN ESCRITA DOS VECES${intervals ? " (o en los dos calendarios)" : ""}: ` +
+          `${proximos.dobles.map(diaLegible).join(", ")}. Quita la que sobra con ` +
+          "garmin_unschedule_workout (una fecha), no borrando el entreno.",
       );
     }
     if (!calGarmin) lineas.push("⚠ El calendario de Garmin NO se leyó: los días vacíos de arriba pueden no estarlo.");

@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { ConfigError, configFromEnv, configParaEntrenador, type Env } from "../src/env";
+import { ConfigError, configFromEnv, configParaEntrenador, paginaPublicaActiva, type Env } from "../src/env";
 import {
   HERRAMIENTAS_INTERVALS,
   HERRAMIENTAS_PUBLICO,
@@ -60,6 +60,42 @@ describe("intervals.icu opcional", () => {
     expect(c.intervals).toBe(false);
     const nombres = buildTools(e, c).map((t) => t.name);
     for (const n of HERRAMIENTAS_INTERVALS) expect(nombres).not.toContain(n);
+  });
+
+  it("INTERVALS_EN_ENTRENADOR=no con página pública: set_plan_publico sigue, y lo anunciado existe", () => {
+    // La página la calcula el servidor con intervals; que el entrenador no lo
+    // vea no la apaga. Antes se anunciaba set_plan_publico y no se registraba.
+    const e = env({
+      INTERVALS_API_KEY: "k",
+      INTERVALS_ATHLETE_ID: "i1",
+      INTERVALS_EN_ENTRENADOR: "no",
+      PUBLICO: {} as KVNamespace,
+    });
+    const c = configParaEntrenador(e);
+    const nombres = buildTools(e, c).map((t) => t.name);
+    expect(nombres).toContain("set_plan_publico");
+    const instr = serverInstructions({ intervals: c.intervals, publico: paginaPublicaActiva(e) });
+    expect(instr).toMatch(/set_plan_publico/);
+    // Y sin intervals en el entrenador, ninguna descripción le manda a intervals.
+    const texto = buildTools(e, c).map((t) => t.description).join("\n") + instr;
+    expect(texto).not.toMatch(/list_events|intervals\.icu|get_activities|get_weekly_summary/);
+  });
+
+  it("toda herramienta que nombran las instrucciones está registrada", () => {
+    for (const intervals of [false, true]) {
+      for (const publico of [false, true]) {
+        const e = env({
+          ...(intervals || publico ? { INTERVALS_API_KEY: "k", INTERVALS_ATHLETE_ID: "i1" } : {}),
+          ...(intervals ? {} : { INTERVALS_EN_ENTRENADOR: "no" }),
+          ...(publico ? { PUBLICO: {} as KVNamespace } : {}),
+        });
+        const c = configParaEntrenador(e);
+        const nombres = new Set(buildTools(e, c).map((t) => t.name));
+        const instr = serverInstructions({ intervals: c.intervals, publico: paginaPublicaActiva(e) });
+        const citadas = instr.match(/\b(?:get|set|list|create|diary|garmin|contract)_[a-z_]+\b/g) ?? [];
+        for (const n of citadas) expect(nombres, `${n} (intervals=${intervals}, publico=${publico})`).toContain(n);
+      }
+    }
   });
 
   it("las instrucciones no mandan a herramientas que no existen", () => {

@@ -215,7 +215,7 @@ async function main() {
   check("notificación initialized → 202", notif.status === 202);
   const lista = await rpc("tools/list");
   const nombres = (lista.body?.result?.tools || []).map((t) => t.name);
-  check("tools/list expone 42 herramientas (briefing, diario e histórico de Garmin)", nombres.length === 42, nombres.join(","));
+  check("tools/list expone 43 herramientas (briefing, diario, histórico de Garmin y quitar una fecha)", nombres.length === 43 && nombres.includes("garmin_unschedule_workout"), nombres.join(","));
   for (const requerido of ["get_contract", "contract_commit", "get_log", "get_wellness", "create_workout", "get_athlete_settings", "get_streaks", "get_activity_streams", "get_records", "search_activities", "set_wellness", "get_material", "set_material"]) {
     check(`herramienta presente: ${requerido}`, nombres.includes(requerido));
   }

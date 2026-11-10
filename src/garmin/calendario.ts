@@ -253,6 +253,7 @@ export function formatearCalendario(
   desde: string,
   hasta: string,
   diagnostico = false,
+  conIntervals = false,
 ): string {
   const lineas: string[] = [];
   if (!calendario.items.length) {
@@ -276,7 +277,8 @@ export function formatearCalendario(
       ),
       "",
       "«✓» es lo que Garmin da por hecho. «id entreno» vuelve a programarlo o lo borra; " +
-        "«programación» es esta cita concreta y sirve para quitarla del calendario; " +
+        "«programación» es esta cita concreta y garmin_unschedule_workout la quita sin tocar " +
+        "las otras fechas del entreno; " +
         "«id actividad» es una sesión ya hecha, y con él garmin_activity da sus series.",
     );
   }
@@ -297,10 +299,12 @@ export function formatearCalendario(
     }
   }
 
-  lineas.push(
-    "",
-    "Esto NO se ve en list_events (intervals.icu): son dos calendarios distintos. " +
-      "Antes de programar, mira los dos.",
-  );
+  if (conIntervals) {
+    lineas.push(
+      "",
+      "Esto NO se ve en list_events (intervals.icu): son dos calendarios distintos. " +
+        "Antes de programar, mira los dos.",
+    );
+  }
   return lineas.join("\n");
 }
