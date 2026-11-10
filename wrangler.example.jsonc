@@ -1,0 +1,43 @@
+{
+	// Plantilla. Tu configuración de verdad es wrangler.jsonc, que NO se sube al
+	// repositorio (lleva los ids de tu base de datos). La escribe el instalador:
+	//   npm run instalar
+	// o, a mano: copia este fichero a wrangler.jsonc y pega tu database_id.
+	"name": "intervals-pro",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-07-01",
+	"observability": { "enabled": true },
+
+	// Identidad del despliegue vivo, para /healthz: saber desde fuera qué código
+	// está corriendo es parte de poder comprobar que todo va bien.
+	"version_metadata": { "binding": "CF_VERSION_METADATA" },
+
+	// Cada hora: el histórico de Garmin se llena por tandas (src/historico/).
+	// La ejecución de las 08:00 UTC hace además lo diario (rachas).
+	"triggers": { "crons": ["0 * * * *"] },
+
+	// Base de datos del contrato (fuente de verdad).
+	//   npx wrangler d1 create intervals-pro   → pega aquí el database_id
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "intervals-pro",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+
+	// Opcional: página pública de progreso (src/publico/). Solo existe si hay un
+	// namespace KV «PUBLICO»; sin él, el módulo no se carga.
+	// "kv_namespaces": [{ "binding": "PUBLICO", "id": "<id del namespace>" }],
+
+	// Variables NO sensibles. Las sensibles van como secretos (las sube el
+	// instalador): MCP_SECRET_PATH, APP_PASSWORD, SESSION_SECRET y, si usas
+	// intervals.icu, INTERVALS_API_KEY.
+	"vars": {
+		"INTERVALS_TZ": "America/Bogota",
+		// Con intervals.icu como respaldo, su id de atleta:
+		// "INTERVALS_ATHLETE_ID": "i123456",
+		"INTERVALS_EN_ENTRENADOR": "no"
+	}
+}

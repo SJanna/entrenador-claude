@@ -1,0 +1,49 @@
+name: Algo no funciona
+description: Un error del entrenador, del panel o de la instalación.
+labels: ["error"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Antes de enviar:** no pegues datos reales (salud, nombres, lugares, URL del conector, contraseñas ni ids de cuentas). Cambia lo que haga falta por valores inventados.
+        ¿Es un fallo de seguridad? No lo abras aquí: mira SECURITY.md.
+  - type: textarea
+    id: que
+    attributes:
+      label: Qué pasa
+      description: Qué esperabas y qué ocurrió.
+    validations:
+      required: true
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Cómo reproducirlo
+      placeholder: "1. Le pido al entrenador …\n2. …"
+    validations:
+      required: true
+  - type: dropdown
+    id: donde
+    attributes:
+      label: Dónde
+      options:
+        - Entrenador en Claude (herramientas MCP)
+        - Panel web
+        - Instalador
+        - Conexión con Garmin
+        - intervals.icu (opcional)
+        - Otro
+    validations:
+      required: true
+  - type: textarea
+    id: salud
+    attributes:
+      label: /healthz y mensajes de error
+      description: La respuesta de https://…workers.dev/healthz y el texto del error, si lo hay.
+      render: text
+  - type: checkboxes
+    id: privacidad
+    attributes:
+      label: Privacidad
+      options:
+        - label: He quitado los datos personales, credenciales y URLs secretas.
+          required: true

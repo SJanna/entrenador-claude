@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.mcp-url.txt
+.DS_Store
+*.log
+
+# Configuración de TU instalación: lleva los ids de tu base de datos.
+# La plantilla es wrangler.example.jsonc; el instalador escribe esta.
+wrangler.jsonc
+# La que genera el e2e a partir de la plantilla.
+.wrangler-e2e.jsonc

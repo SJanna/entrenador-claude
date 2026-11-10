@@ -1,0 +1,30 @@
+{
+  "name": "intervals-mcp-cf",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Entrenador personal en Claude sobre Cloudflare Workers: servidor MCP con Garmin, contrato de entrenamiento en D1 y panel web de solo lectura.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate": "wrangler d1 migrations apply intervals-pro --remote",
+    "db:migrate:local": "wrangler d1 migrations apply intervals-pro --local",
+    "stub": "node scripts/stub-intervals.mjs",
+    "e2e": "node test/e2e.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "instalar": "node scripts/instalar.mjs"
+  },
+  "dependencies": {
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260810.1",
+    "playwright": "^1.62.1",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.0",
+    "wrangler": "^4.120.0"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0"
+}

@@ -1,0 +1,19 @@
+name: Idea o mejora
+description: Algo que el entrenador o el panel podrían hacer mejor.
+labels: ["idea"]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Qué problema resuelve
+      description: Cuéntalo desde el uso real. Qué decisión de entrenamiento se toma peor hoy, o qué cuesta hacer.
+    validations:
+      required: true
+  - type: textarea
+    id: propuesta
+    attributes:
+      label: Qué propones
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: Otras opciones que has pensado

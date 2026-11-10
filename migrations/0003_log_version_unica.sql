@@ -1,0 +1,23 @@
+-- Una versión, una entrada de log.
+--
+-- `commit()` lee la versión actual y escribe N+1 en un batch posterior. Entre
+-- la lectura y la escritura cabe otro commit (Claude en el móvil y el panel a
+-- la vez), y los dos acabarían escribiendo la misma versión con contenidos
+-- distintos: el log dejaría de ser una línea de tiempo fiable.
+--
+-- Este índice lo hace imposible desde la base de datos: el segundo batch viola
+-- la restricción y se deshace ENTERO (D1.batch es transaccional), así que no
+-- queda nada a medias y el que pierde recibe un error claro para reintentar.
+--
+-- Parcial (`WHERE version IS NOT NULL`) porque las entradas históricas que
+-- importa el migrador desde intervals.icu se escriben con version NULL y son
+-- legítimamente muchas.
+--
+-- Si esta migración falla con UNIQUE constraint, es que ya existen entradas de
+-- log repitiendo versión: son datos, no un fallo del esquema. Míralas con
+--   SELECT version, COUNT(*) FROM log WHERE version IS NOT NULL
+--   GROUP BY version HAVING COUNT(*) > 1;
+-- y decide qué hacer antes de volver a aplicarla. El log es append-only: no lo
+-- limpies con DELETE sin pensarlo dos veces.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_log_version_unica
+  ON log (version) WHERE version IS NOT NULL;

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Un solo run por rama: si empujas dos veces seguidas, el primero se cancela.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22: con la 20 fallan los tests (vitest 4 pide runtime más nuevo).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tipos
+        run: npm run check
+
+      - name: Unitarios
+        run: npm test
+
+      # End-to-end sin red externa ni credenciales de Cloudflare: stub de
+      # intervals.icu + wrangler dev + D1 local con las migraciones aplicadas.
+      - name: End-to-end
+        run: npm run e2e
+        env:
+          WRANGLER_SEND_METRICS: "false"

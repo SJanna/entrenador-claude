@@ -1,0 +1,11 @@
+-- Reglas protegidas: la «doble llave» de las restricciones médicas, hecha
+-- cumplir por la base y no por la buena voluntad del entrenador.
+--
+-- Hasta ahora la doble llave vivía en el texto de la constitución: «esta
+-- sección solo se enmienda si yo lo digo, y al escribirlo citas mi frase en el
+-- log». Nada impedía a un commit relajarla por inferencia. Con esta columna,
+-- contract_commit rechaza crear, modificar o retirar una regla protegida si no
+-- trae la frase textual del atleta en `cita_textual`, y esa frase queda en el
+-- log. Una regla protegida tampoco puede caducar sola por fecha: una
+-- restricción médica no se relaja porque pase el tiempo.
+ALTER TABLE reglas ADD COLUMN protegida INTEGER NOT NULL DEFAULT 0;

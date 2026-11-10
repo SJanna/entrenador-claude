@@ -1,0 +1,29 @@
+# Copia a .dev.vars para desarrollo local (NO se sube al repo).
+# En producción estos valores se definen con `npx wrangler secret put ...`.
+
+# Clave personal: intervals.icu → Settings → Developer Settings → API Key
+INTERVALS_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxx
+
+# Segmento secreto de la URL del endpoint MCP. Genera uno largo:
+#   node -e "console.log(crypto.randomBytes(32).toString('base64url'))"
+MCP_SECRET_PATH=cambia-esto-por-algo-largo-y-aleatorio
+
+# Contraseña de la web (pantalla de login).
+APP_PASSWORD=cambia-esto
+
+# Clave de firma de las cookies de sesión. Genera otra distinta:
+#   node -e "console.log(crypto.randomBytes(32).toString('base64url'))"
+SESSION_SECRET=cambia-esto-tambien
+
+# Opcionales (sobrescriben las vars de wrangler.jsonc en local):
+# INTERVALS_ATHLETE_ID=i123456
+# INTERVALS_TZ=America/Bogota
+# INTERVALS_BASE_URL=http://127.0.0.1:8787-stub  (para el stub local)
+
+# Ajuste fino de campos de bienestar (solo si algo sale como "—"):
+# INTERVALS_FIELD_BODY_BATTERY=bodyBattery
+# INTERVALS_FIELD_READINESS=readiness
+# INTERVALS_FIELD_SLEEP_DEEP=deepSleepSecs
+# INTERVALS_FIELD_SLEEP_LIGHT=lightSleepSecs
+# INTERVALS_FIELD_SLEEP_REM=remSleepSecs
+# INTERVALS_FIELD_SLEEP_AWAKE=awakeSecs
