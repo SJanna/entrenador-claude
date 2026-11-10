@@ -99,6 +99,22 @@ async function main() {
     mig.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`migraciones: ${code}`))));
   });
 
+  // La página pública sale del histórico de Garmin (no de intervals): una
+  // carrera guardada, como la dejaría el cron, para que haya algo que calcular.
+  console.log("— Sembrando el histórico de Garmin…");
+  await new Promise((resolve, reject) => {
+    const sql =
+      "INSERT INTO g_actividades (id, fecha, deporte, nombre, segundos, segundos_mov, distancia_m, fc_media, " +
+      "fc_max, gap_ms, temp_clima, clima_estado, detalle_estado, actualizado_en) VALUES " +
+      "(1, '2026-01-31', 'running', 'Día 31', 16900, 16800, 31060, 130, 150, 1.9, 29, 'hecho', 'no_aplica', '2026-11-10T00:00:00Z')";
+    const sem = spawn("npx", ["wrangler", "d1", "execute", "DB", "--local", "-c", CONFIG_E2E, "--command", sql], {
+      stdio: ["ignore", "inherit", "inherit"],
+      env: { ...process.env, CI: "true", WRANGLER_SEND_METRICS: "false" },
+    });
+    sem.on("error", reject);
+    sem.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`semilla: ${code}`))));
+  });
+
   console.log("— Arrancando wrangler dev…");
   const dev = spawn(
     "npx",
@@ -150,7 +166,7 @@ async function main() {
   // Un {status:"ok"} fijo respondia igual con la base caida: §3 dice que si las
   // herramientas no estan, no se programa, y eso hay que poder comprobarlo.
   check("healthz dice en que version va el contrato", /^v\d+$/.test(String(salud.contrato)));
-  check("healthz dice la ultima migracion aplicada", String(salud.esquema).startsWith("0010"), JSON.stringify(salud));
+  check("healthz dice la ultima migracion aplicada", String(salud.esquema).startsWith("0011"), JSON.stringify(salud));
   check("healthz dice que modulos hay", typeof salud.modulos?.intervals === "boolean", JSON.stringify(salud));
   const mal = await fetch(`${BASE}/ruta-incorrecta/mcp`, {
     method: "POST",
@@ -228,7 +244,7 @@ async function main() {
   );
 
   const h0 = await llamar("garmin_weekly_summary");
-  check("garmin_weekly_summary arranca diciendo cuánto histórico hay", h0.texto.startsWith("Histórico de Garmin: 0 actividades"), h0.texto.slice(0, 300));
+  check("garmin_weekly_summary arranca diciendo cuánto histórico hay", h0.texto.startsWith("Histórico de Garmin: 1 actividades"), h0.texto.slice(0, 300)); // la carrera sembrada para la página pública
   const s0 = await llamar("garmin_sync", { budget: 6 });
   check("garmin_sync sin cuenta enlazada para y lo dice", /no hay ninguna cuenta de garmin enlazada/i.test(s0.texto), s0.texto.slice(0, 300));
   const d0 = await llamar("diary_set", {
@@ -724,13 +740,19 @@ async function main() {
 
   const sinCookie = await fetch(`${BASE}/app/api/contract`);
   check("API sin cookie → 401", sinCookie.status === 401);
-  // Página pública: la vista previa calcula con el stub y pasa la lista blanca.
-  // Sin Garmin enlazado el cumplimiento no se actualiza, pero el resto sí.
+  // Página pública: la vista previa calcula con el histórico de Garmin
+  // sembrado (no con intervals) y pasa la lista blanca. Sin Garmin enlazado,
+  // ni cumplimiento ni últimos días en vivo, pero el resto sí.
   const previa = await fetch(`${BASE}/app/api/publico`, { headers: { Cookie: cookie } }).then((r) => r.json());
   check(
     "API /publico calcula un JSON que pasa la lista blanca",
     previa.errores?.length === 0 && previa.publico?.version === 1 && previa.publicado === false,
     JSON.stringify(previa).slice(0, 400),
+  );
+  check(
+    "API /publico lee del histórico de Garmin: la marca de referencia es la carrera sembrada",
+    previa.publico?.referencia?.km === 31.1 && previa.publico?.referencia?.fecha === "2026-01-31",
+    JSON.stringify(previa.publico?.referencia),
   );
   // El stub vive en la fecha real; antes de la T0 no hay días que leer de
   // Garmin y no se le llama. Después, sin cuenta enlazada, lo diría en avisos.

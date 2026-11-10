@@ -27,14 +27,17 @@
 		}
 	],
 
-	// Opcional: página pública de progreso (src/publico/). Solo existe si hay un
-	// namespace KV «PUBLICO»; sin él, el módulo no se carga.
+	// Opcional: página pública de progreso (src/publico/), calculada con el
+	// histórico de Garmin. Solo existe si hay un namespace KV «PUBLICO»; sin él,
+	// el módulo no se carga. No necesita intervals.icu.
 	// "kv_namespaces": [{ "binding": "PUBLICO", "id": "<id del namespace>" }],
 
 	// Variables NO sensibles. Las sensibles van como secretos (las sube el
 	// instalador): MCP_SECRET_PATH, APP_PASSWORD, SESSION_SECRET y, si usas
 	// intervals.icu, INTERVALS_API_KEY.
 	"vars": {
+		// Tu zona horaria (decide qué es «hoy»). Se llama así por herencia, pero
+		// NO tiene que ver con intervals.icu: déjala aunque no lo uses.
 		"INTERVALS_TZ": "America/Bogota",
 		// Con intervals.icu como respaldo, su id de atleta:
 		// "INTERVALS_ATHLETE_ID": "i123456",

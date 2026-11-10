@@ -84,18 +84,11 @@ export function todayInTz(tzName: string): string {
 }
 
 /**
- * La página pública está activa: hay KV y el servidor tiene intervals.icu, que
- * es de donde la calcula el cron. Se decide con la configuración del SERVIDOR,
- * no con la del entrenador: que el entrenador no vea intervals no apaga la
- * página, y set_plan_publico tiene que seguir existiendo para alimentarla.
+ * La página pública está activa si hay KV «PUBLICO». Se calcula con el
+ * histórico de Garmin de la app: no necesita intervals.icu.
  */
 export function paginaPublicaActiva(env: Env): boolean {
-  if (!env.PUBLICO) return false;
-  try {
-    return configFromEnv(env).intervals;
-  } catch {
-    return false;
-  }
+  return Boolean(env.PUBLICO);
 }
 
 /** La configuración que ve el entrenador: sin intervals si así se pidió. */

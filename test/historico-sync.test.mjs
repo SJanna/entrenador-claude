@@ -182,7 +182,7 @@ describe("sincronización del histórico", () => {
   });
 
   it("sin la migración 0010 lo dice en vez de romper", async () => {
-    const db = d1EnMemoria({ salta: ["0010"] });
+    const db = d1EnMemoria({ salta: ["0010", "0011"] });
     const t = new HistoricoTools(new HistoricoStore(db), garminFalso().cliente, () => HOY);
     expect(await t.semanal({})).toMatch(/falta la migración 0010/);
   });
