@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SIMULAR = process.argv.includes("--simular");
-const NOMBRE_DB = "intervals-pro";
+const NOMBRE_DB = "zancada";
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 
@@ -76,7 +76,7 @@ function configuracion({ databaseId, tz, athleteId }) {
   return `{
 	// Generado por scripts/instalar.mjs. Servidor MCP del entrenador + panel web
 	// + contrato en D1. Garmin es la fuente principal; intervals.icu es opcional.
-	"name": "intervals-pro",
+	"name": "zancada",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-07-01",
 	"observability": { "enabled": true },
@@ -173,7 +173,7 @@ async function main() {
   wrangler(["d1", "migrations", "apply", NOMBRE_DB, "--remote"], { ci: true });
 
   paso(6, "Despliegue");
-  const salidaDeploy = wrangler(["deploy"], { simulado: "https://intervals-pro.tu-subdominio.workers.dev" });
+  const salidaDeploy = wrangler(["deploy"], { simulado: "https://zancada.tu-subdominio.workers.dev" });
   const url = (salidaDeploy.match(/https:\/\/[^\s]+\.workers\.dev/) ?? [])[0];
   if (!url) throw new Error("El despliegue no dio una URL de workers.dev. Mira la salida de `npx wrangler deploy`.");
 

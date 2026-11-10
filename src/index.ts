@@ -1,5 +1,5 @@
 /**
- * intervals-pro: Worker único con tres caras.
+ * zancada: Worker único con tres caras.
  *  - /:secreto/mcp   → servidor MCP (streamable HTTP, stateless) para Claude.
  *  - /app            → panel web (login con contraseña + cookie firmada).
  *  - /healthz        → health check público.
@@ -50,7 +50,7 @@ app.onError((exc, c) => {
 // base contesta; si no contesta, responde 503 en vez de fingir que todo va bien.
 app.get("/healthz", async (c) => {
   const despliegue = c.env.CF_VERSION_METADATA;
-  const salida: Record<string, unknown> = { status: "ok", service: "intervals-pro" };
+  const salida: Record<string, unknown> = { status: "ok", service: "zancada" };
   if (despliegue?.id) salida.version = despliegue.id;
   if (despliegue?.tag) salida.tag = despliegue.tag;
   if (despliegue?.timestamp) salida.desplegado = despliegue.timestamp;
@@ -139,8 +139,8 @@ function mcpAutorizado(env: Env, presentado: string): boolean {
 function despacharMcp(c: Context<{ Bindings: Env }>): Promise<Response> {
   const config = configParaEntrenador(c.env);
   return handleMcpRequest(c.req.raw, {
-    name: "intervals-pro",
-    title: "Entrenador PRO (Garmin + contrato)",
+    name: "zancada",
+    title: "Zancada · entrenador (Garmin + contrato)",
     version: "1.1.0",
     instructions: serverInstructions({
       intervals: config.intervals,
@@ -160,7 +160,7 @@ app.post("/mcp", async (c) => {
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!mcpAutorizado(c.env, token)) {
     return c.json({ error: "No autorizado." }, 401, {
-      "WWW-Authenticate": 'Bearer realm="intervals-pro"',
+      "WWW-Authenticate": 'Bearer realm="zancada"',
     });
   }
   return despacharMcp(c);
