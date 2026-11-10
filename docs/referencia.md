@@ -242,12 +242,42 @@ npx wrangler secret put SESSION_SECRET      # otro aleatorio distinto, para firm
 npm run deploy
 ```
 
+### Despliegue automático desde GitHub (Workers Builds)
+
+Si tu copia del repositorio está en GitHub, Cloudflare puede desplegar sola cada
+vez que llega algo a `main`. El problema es que `wrangler.jsonc` no está en el
+repositorio, y Workers Builds lo necesita. Lo genera
+`scripts/config-desde-entorno.mjs` a partir de unas variables que guardas en
+Cloudflare: tus ids viven allí, no en git.
+
+En Cloudflare → tu Worker → **Settings → Build**:
+
+1. **Git repository**: conecta tu repositorio, rama `main`.
+2. **Build command**: `npm run config:entorno`
+3. **Deploy command**:
+   `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`.
+   Así las migraciones se aplican antes que el código, en el mismo paso.
+4. **Build variables**:
+
+   | Variable | Valor |
+   |---|---|
+   | `D1_DATABASE_ID` | el id de tu base (`npx wrangler d1 list`) |
+   | `WORKER_NAME` | el nombre de tu Worker, si no es `intervals-pro` |
+   | `D1_DATABASE_NAME` | el nombre de tu base, si no es `intervals-pro` |
+   | `KV_PUBLICO_ID` | solo con página pública: el id del namespace |
+   | `INTERVALS_TZ` | tu zona horaria, si no es `America/Bogota` |
+   | `INTERVALS_ATHLETE_ID` | solo si usas intervals.icu |
+
+El nombre del Worker que genera la configuración tiene que coincidir con el del
+Worker en Cloudflare: si cambias uno, cambia el otro. Las variables del Worker
+(`vars`) salen de aquí en cada despliegue; los secretos no se tocan.
+
 ### Actualizar una instalación que ya vive
 
 **La migración va antes que el código.** Si conectas el repositorio a
 Cloudflare Workers Builds, el despliegue lo dispara la llegada del código a `main`, y **las migraciones de
-D1 no forman parte de ese build**. O sea que «antes que el código» significa
-antes de fusionar, no antes de un `npm run deploy` que quizá nadie llegue a
+D1 no forman parte de ese build** salvo que el *deploy command* las incluya,
+como en la sección anterior. Sin eso, «antes que el código» significa antes de fusionar, no antes de un `npm run deploy` que quizá nadie llegue a
 escribir:
 
 ```sh
