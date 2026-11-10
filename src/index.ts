@@ -268,9 +268,7 @@ async function refrescarRachas(env: Env, cron: string): Promise<void> {
 async function publicarProgreso(env: Env, cron: string): Promise<void> {
   try {
     if (!env.PUBLICO) return; // módulo opcional: sin KV no hay página pública
-    const config = configFromEnv(env);
-    if (!config.intervals) return;
-    const r = await calcularPublico(env, config, { publicar: true });
+    const r = await calcularPublico(env, configFromEnv(env), { publicar: true });
     console.log(
       `cron ${cron}: página pública ${r.publicado ? "publicada" : "NO publicada"}` +
         (r.avisos.length ? ` · ${r.avisos.join(" · ")}` : ""),
@@ -297,7 +295,7 @@ async function sincronizarGarmin(env: Env, cron: string): Promise<void> {
     const r = await sincronizarHistorico(cliente, store, hoy, { presupuesto });
     console.log(
       `cron ${cron}: histórico Garmin · ${r.llamadas} llamadas · ${r.actividadesNuevas} actividades nuevas · ` +
-        `${r.detalles} series · ${r.dias} días` + (r.parado ? ` · parada: ${r.parado}` : ""),
+        `${r.detalles} series · ${r.climas} climas · ${r.dias} días` + (r.parado ? ` · parada: ${r.parado}` : ""),
     );
   } catch (exc) {
     console.error("cron del histórico de Garmin: no se pudo sincronizar", exc);

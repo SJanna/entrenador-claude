@@ -34,6 +34,8 @@ export interface Actividad {
   /** activityTrainingLoad: la carga de Garmin, base del CTL/ATL del histórico. */
   carga: number | null;
   segundosMov: number | null;
+  /** Ritmo ajustado por pendiente (GAP) de Garmin, en m/s. Solo a pie; si no viene, null. */
+  gapMs?: number | null;
 }
 
 export interface SerieFuerza {
@@ -99,7 +101,31 @@ export function normalizarActividad(bruto: unknown): Actividad | null {
     efectoAnaerobico: numero(a.anaerobicTrainingEffect),
     carga: numero(a.activityTrainingLoad),
     segundosMov: numero(a.movingDuration),
+    gapMs: positivo(a.avgGradeAdjustedSpeed),
   };
+}
+
+function positivo(valor: unknown): number | null {
+  const n = numero(valor);
+  return n !== null && n > 0 ? n : null;
+}
+
+/**
+ * Temperatura del CLIMA durante una actividad (no la del sensor del reloj, que
+ * la muñeca calienta), en °C. Garmin la da en °F en `temp`. null si la
+ * actividad no tiene clima (cinta, sin GPS) o si el dato es imposible.
+ */
+export async function leerClima(cliente: GarminCliente, id: number): Promise<number | null> {
+  const datos = await json(cliente, `/activity-service/activity/${id}/weather`);
+  return climaDe(datos);
+}
+
+export function climaDe(datos: unknown): number | null {
+  if (!datos || typeof datos !== "object" || Array.isArray(datos)) return null;
+  const f = numero((datos as Record<string, unknown>).temp);
+  if (f === null) return null;
+  const c = Math.round(((f - 32) * 5) / 9 * 10) / 10;
+  return c >= -30 && c <= 55 ? c : null;
 }
 
 export function normalizarSeries(bruto: unknown): SerieFuerza[] {

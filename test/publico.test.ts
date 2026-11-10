@@ -10,7 +10,6 @@ import { describe, expect, it } from "vitest";
 import {
   calcularProgreso,
   categoriaDe,
-  categoriaIntervals,
   emparejar,
   EXPONENTE_RIEGEL,
   prediccion,
@@ -35,7 +34,7 @@ const TEMPORADAS: Temporada[] = [
   { numero: 4, nombre: "Día D", desde: "2027-08-01", hasta: "2027-08-21" },
 ];
 
-function run(fecha: string, km: number, tipo = "Run"): ActividadKm {
+function run(fecha: string, km: number, tipo = "running"): ActividadKm {
   return { fecha, tipo, km };
 }
 
@@ -61,16 +60,16 @@ function semana(r: ReturnType<typeof calcularProgreso>, lunes: string) {
 }
 
 describe("km por semana", () => {
-  it("suma Run, TrailRun y VirtualRun; deja fuera caminatas y bici", () => {
+  it("suma carrera, trail y virtual (tipos de Garmin); deja fuera caminatas, senderismo y bici", () => {
     const r = calcularProgreso(
       entrada({
         actividades: [
           run("2026-12-14", 10),
-          run("2026-12-15", 16, "TrailRun"),
-          run("2026-12-16", 5, "VirtualRun"),
-          run("2026-12-16", 4, "Walk"),
-          run("2026-12-17", 6, "Hike"),
-          run("2026-12-18", 40, "Ride"),
+          run("2026-12-15", 16, "trail_running"),
+          run("2026-12-16", 5, "virtual_run"),
+          run("2026-12-16", 4, "walking"),
+          run("2026-12-17", 6, "hiking"),
+          run("2026-12-18", 40, "cycling"),
         ],
       }),
     );
@@ -94,7 +93,7 @@ describe("km por semana", () => {
       { numero: 3, nombre: "Específica", desde: "2027-07-16", hasta: "2027-10-24" },
       { numero: 4, nombre: "Día D", desde: "2027-10-25", hasta: "2027-11-14" },
     ];
-    const aerobica = (fecha: string, km: number, tipo = "Run"): ActividadKm => ({
+    const aerobica = (fecha: string, km: number, tipo = "running"): ActividadKm => ({
       fecha, tipo, km, categoria: "carrera", segundos: km * 480, fcMedia: 140, fcMax: 160, gap: 2.2, temp: 30,
     });
     const r = calcularProgreso(
@@ -103,7 +102,7 @@ describe("km por semana", () => {
         diaD: "2027-11-14",
         temporadas,
         cumplimientoHasta: "2026-12-03",
-        actividades: [aerobica("2026-11-29", 25.5, "TrailRun"), aerobica("2026-11-30", 5), aerobica("2026-12-01", 6)],
+        actividades: [aerobica("2026-11-29", 25.5, "trail_running"), aerobica("2026-11-30", 5), aerobica("2026-12-01", 6)],
         programadas: [
           { fecha: "2026-11-30", cumplida: true },
           { fecha: "2026-12-01", cumplida: true },
@@ -155,7 +154,7 @@ describe("km por semana", () => {
 });
 
 describe("tirada larga e hitos", () => {
-  const historico = [run("2026-01-31", 31.1), run("2026-01-28", 28), run("2026-11-29", 25.5, "TrailRun")];
+  const historico = [run("2026-01-31", 31.1), run("2026-01-28", 28), run("2026-11-29", 25.5, "trail_running")];
 
   it("la referencia es lo mejor de antes de la T1", () => {
     const r = calcularProgreso(entrada({ actividades: historico }));
@@ -394,7 +393,7 @@ describe("tramos del calendario de Garmin", () => {
 
 describe("ayer, la semana día a día y los totales", () => {
   const ses = (fecha: string, tipo: string, km: number, extra: Partial<ActividadKm> = {}): ActividadKm => ({
-    fecha, tipo, km, categoria: categoriaIntervals(tipo, ""), segundos: 3000, fcMedia: 151.6, fcMax: 171, temp: 31.24, ...extra,
+    fecha, tipo, km, categoria: categoriaDe(tipo, ""), segundos: 3000, fcMedia: 151.6, fcMax: 171, temp: 31.24, ...extra,
   });
 
   it("ayer sale sesión a sesión, con ritmo, pulso y temperatura; hoy no", () => {
@@ -402,9 +401,9 @@ describe("ayer, la semana día a día y los totales", () => {
       entrada({
         hoy: "2026-12-30",
         actividades: [
-          ses("2026-12-29", "Run", 8),
-          ses("2026-12-29", "WeightTraining", 0, { segundos: 1500, fcMedia: null, fcMax: null, temp: null }),
-          ses("2026-12-30", "Run", 20),
+          ses("2026-12-29", "running", 8),
+          ses("2026-12-29", "strength_training", 0, { segundos: 1500, fcMedia: null, fcMax: null, temp: null }),
+          ses("2026-12-30", "running", 20),
         ],
       }),
     );
@@ -422,9 +421,9 @@ describe("ayer, la semana día a día y los totales", () => {
     const r = calcularProgreso(
       entrada({
         actividades: [
-          { ...ses("2026-12-29", "Walk", 4), categoria: categoriaIntervals("Walk", "Caminata") },
-          { ...ses("2026-12-29", "WeightTraining", 0), categoria: categoriaIntervals("WeightTraining", "Terapia tobillo") },
-          { ...ses("2026-12-29", "Ride", 30), categoria: categoriaIntervals("Ride", "Bici") },
+          { ...ses("2026-12-29", "walking", 4), categoria: categoriaDe("walking", "Caminata") },
+          { ...ses("2026-12-29", "strength_training", 0), categoria: categoriaDe("strength_training", "Terapia tobillo") },
+          { ...ses("2026-12-29", "cycling", 30), categoria: categoriaDe("cycling", "Bici") },
         ],
       }),
     );
@@ -436,7 +435,7 @@ describe("ayer, la semana día a día y los totales", () => {
     const r = calcularProgreso(
       entrada({
         hoy: "2026-12-31",
-        actividades: [ses("2026-12-28", "Run", 6), ses("2026-12-28", "Swim", 1.5), ses("2026-12-30", "Run", 10)],
+        actividades: [ses("2026-12-28", "running", 6), ses("2026-12-28", "lap_swimming", 1.5), ses("2026-12-30", "running", 10)],
       }),
     );
     expect(r.semana_dias).toEqual({
@@ -450,7 +449,7 @@ describe("ayer, la semana día a día y los totales", () => {
   });
 
   it("antes del día 1 no hay nada de esto", () => {
-    const r = calcularProgreso(entrada({ hoy: "2026-11-03", actividades: [ses("2026-11-02", "Run", 5)] }));
+    const r = calcularProgreso(entrada({ hoy: "2026-11-03", actividades: [ses("2026-11-02", "running", 5)] }));
     expect(r.ayer).toBeNull();
     expect(r.semana_dias).toBeNull();
     expect(r.totales).toBeNull();
@@ -459,7 +458,7 @@ describe("ayer, la semana día a día y los totales", () => {
 
 describe("ritmo a pulso fijo y predicción", () => {
   const rodaje = (fecha: string, km: number, segundos: number, fc: number, gap: number): ActividadKm => ({
-    fecha, tipo: "Run", km, categoria: "carrera", segundos, fcMedia: fc, gap, temp: 30,
+    fecha, tipo: "running", km, categoria: "carrera", segundos, fcMedia: fc, gap, temp: 30,
   });
 
   it("solo rodajes suaves de 20 min o más; ritmo equivalente al centro de la Z1 (144) con GAP", () => {
@@ -540,7 +539,7 @@ describe("lista blanca", () => {
 
   it("una sesión de ayer con hora o nombre no pasa", () => {
     const r = calcularProgreso(
-      entrada({ actividades: [{ fecha: "2026-12-29", tipo: "Run", km: 8, categoria: "carrera", segundos: 3000 }] }),
+      entrada({ actividades: [{ fecha: "2026-12-29", tipo: "running", km: 8, categoria: "carrera", segundos: 3000 }] }),
     ) as unknown as Record<string, unknown>;
     expect(erroresPublicos(r)).toEqual([]);
     const sesion = (r.ayer as { sesiones: Array<Record<string, unknown>> }).sesiones[0]!;

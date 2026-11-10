@@ -1,6 +1,7 @@
 /**
  * Agregados de la página pública de progreso (módulo opcional). Cálculo puro: sin red ni D1, para
- * poder probarlo con datos fijos y cuadrarlo contra lo que enseña intervals.icu.
+ * poder probarlo con datos fijos. Las actividades llegan del histórico de Garmin, con sus tipos
+ * de Garmin (`running`, `trail_running`…).
  *
  * Qué sale de aquí y qué no:
  *  - Km por semana, la tirada más larga de cada semana, los hitos y el % de
@@ -13,15 +14,20 @@
  *  - Ninguna hora, ningún nombre de actividad, ningún lugar, ninguna coordenada.
  *    Los nombres de las actividades dicen dónde se corre («Rampa 1» puede ser la calle
  *    de casa): solo sirven, fuera de aquí, para descartar caminatas y terapia
- *    (`categoriaIntervals`), y no entran en el resultado.
+ *    (`categoriaDe`), y no entran en el resultado.
  *  - `salud: null` sigue ahí: añadir más salud tiene que ser otra decisión
  *    explícita y no un campo que se cuela.
  */
 
 import { addDays, mondayOf, weekdayMonday0 } from "../dates";
 
-/** Lo que cuenta como km: lo que se camine dentro de una salida ya va dentro. */
-export const TIPOS_CARRERA = new Set(["Run", "TrailRun", "VirtualRun"]);
+/**
+ * Lo que cuenta como km (tipos de Garmin): lo que se camine dentro de una
+ * salida ya va dentro. Caminata y senderismo, no.
+ */
+export const TIPOS_CARRERA = new Set([
+  "running", "trail_running", "treadmill_running", "track_running", "indoor_running", "virtual_run", "street_running",
+]);
 
 /** Un maratón son 42,195 km; el GPS que mida menos se marca a mano. */
 export const HITOS = [
@@ -530,20 +536,6 @@ const DEPORTES: Record<string, Categoria> = {
   lap_swimming: "natacion",
   open_water_swimming: "natacion",
 };
-
-/** Lo mismo con los tipos de intervals.icu, para las sesiones de la página. */
-const TIPOS_INTERVALS: Record<string, Categoria> = {
-  Run: "carrera",
-  TrailRun: "carrera",
-  VirtualRun: "carrera",
-  WeightTraining: "fuerza",
-  Swim: "natacion",
-  OpenWaterSwim: "natacion",
-};
-export function categoriaIntervals(tipo: string, nombre: string): Categoria | null {
-  if (EXCLUIDAS.test(nombre)) return null;
-  return TIPOS_INTERVALS[tipo] ?? null;
-}
 
 export function categoriaDe(deporte: string | null, nombre: string): Categoria | null {
   if (!deporte || EXCLUIDAS.test(nombre)) return null;

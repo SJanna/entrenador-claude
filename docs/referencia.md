@@ -196,8 +196,17 @@ advertencia de que una racha viva nunca es argumento para entrenar.
 Un módulo para publicar **agregados** del entrenamiento en una página pública:
 km por semana (real frente a planificado), la tirada más larga, hitos, % de
 sesiones cumplidas y racha de semanas. Ni una hora, ni un nombre de actividad,
-ni un lugar, ni coordenadas, ni salud. Hoy necesita intervals.icu para el
-histórico de km.
+ni un lugar, ni coordenadas, ni salud. Todo sale de **Garmin**: las actividades
+del histórico que guarda la app (con los últimos 21 días releídos en vivo) y el
+plan y el cumplimiento del calendario. No necesita intervals.icu.
+
+- **Ritmo ajustado por pendiente (GAP) y clima**: el GAP viene en el listado de
+  actividades de Garmin; la temperatura es la del **clima** de cada carrera al
+  aire libre (no la del sensor del reloj, que calienta la muñeca), una llamada
+  por actividad que el cron hace poco a poco (migración 0011). La vista previa
+  dice cuántas carreras de la serie van sin uno u otro.
+- **Si el histórico está vacío no se publica nada**: la página sigue con lo del
+  día anterior, que lleva su fecha.
 
 - **Solo existe si hay un namespace KV `PUBLICO`** en `wrangler.jsonc`. Sin él,
   ni la herramienta `set_plan_publico` ni el cron de publicación se cargan.
@@ -209,8 +218,11 @@ histórico de km.
 - **La página va aparte** (por ejemplo, Cloudflare Pages) con un binding de
   **solo lectura** a ese KV: no tiene secretos ni acceso a D1.
 - `GET /app/api/publico` (detrás del login) enseña lo que se publicaría, con el
-  diagnóstico de qué sesión cuenta y cuál no; `POST /app/api/publico/publicar`
-  publica sin esperar al cron.
+  diagnóstico de qué sesión cuenta y cuál no y las últimas carreras tal como
+  entran al cálculo (para cuadrarlas con Garmin Connect). `POST
+  /app/api/publico/publicar` publica sin esperar al cron; desde la consola del
+  navegador, con el panel abierto:
+  `fetch("/app/api/publico/publicar", { method: "POST" }).then(r => r.json()).then(console.log)`.
 
 ## Despliegue en Cloudflare (una vez)
 

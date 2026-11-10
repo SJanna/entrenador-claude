@@ -10,7 +10,8 @@
  *      de hoy y de ayer): es lo que pide el entrenador esta noche.
  *   2. La carga inicial de actividades, página a página hacia atrás.
  *   3. El detalle (series) de las actividades a pie, de la más nueva a la más
- *      vieja: de ahí salen las marcas y el desacople.
+ *      vieja: de ahí salen las marcas y el desacople. Después, el clima de
+ *      unas pocas carreras al aire libre (para la página pública).
  *   4. El bienestar hacia atrás, hasta el objetivo de días.
  *   5. El peso, una vez al día.
  *
@@ -19,7 +20,7 @@
  */
 
 import { addDays } from "../dates";
-import { listarActividades } from "../garmin/actividades";
+import { leerClima, listarActividades } from "../garmin/actividades";
 import { leerDia } from "../garmin/bienestar";
 import type { GarminCliente } from "../garmin/cliente";
 import { GarminError } from "../garmin/cliente";
@@ -37,6 +38,8 @@ export const PRESUPUESTO_POR_DEFECTO = 18;
 export const DIAS_BIENESTAR_OBJETIVO = 120;
 const PAGINA = 50;
 const LLAMADAS_POR_DIA = 6;
+/** Climas por pasada: una llamada por actividad, así que pocos y de lo nuevo a lo viejo. */
+const CLIMA_POR_PASADA = 3;
 /** Bienestar de hoy/ayer: se relee si tiene más de esto. */
 const REFRESCO_MS = 3 * 3600_000;
 /**
@@ -50,6 +53,7 @@ export interface InformeSync {
   llamadas: number;
   actividadesNuevas: number;
   detalles: number;
+  climas: number;
   dias: number;
   pesos: number;
   parado: string | null;
@@ -79,7 +83,7 @@ export async function sincronizarHistorico(
   const presupuesto = Math.max(6, opciones.presupuesto ?? PRESUPUESTO_POR_DEFECTO);
   const ahora = opciones.ahora ?? Date.now;
   const informe: InformeSync = {
-    llamadas: 0, actividadesNuevas: 0, detalles: 0, dias: 0, pesos: 0, parado: null, errores: [],
+    llamadas: 0, actividadesNuevas: 0, detalles: 0, climas: 0, dias: 0, pesos: 0, parado: null, errores: [],
   };
   const cliente = contado(clienteReal, presupuesto, informe);
   const queda = () => presupuesto - informe.llamadas;
@@ -199,6 +203,29 @@ export async function sincronizarHistorico(
           throw exc;
         }
         await store.falloDetalle(id, exc instanceof Error ? exc.message : String(exc));
+        throw exc;
+      }
+    });
+    if (!seguir) return cerrar();
+  }
+
+  // 3b. Clima de las carreras al aire libre (lo usa la página pública): unas
+  // pocas por pasada, de la más nueva a la más vieja, sin comerse el bienestar.
+  const climas = await store.pendientesDeClima(Math.min(CLIMA_POR_PASADA, Math.max(0, queda() - reservaBienestar)));
+  for (const { id } of climas) {
+    if (queda() <= reservaBienestar) break;
+    const seguir = await paso(`clima ${id}`, async () => {
+      try {
+        await store.guardarClima(id, await leerClima(cliente, id));
+        informe.climas++;
+      } catch (exc) {
+        if (
+          exc instanceof SinPresupuesto ||
+          (exc instanceof GarminError && ["limitado", "no_enlazada", "reenlazar"].includes(exc.codigo))
+        ) {
+          throw exc;
+        }
+        await store.falloClima(id);
         throw exc;
       }
     });

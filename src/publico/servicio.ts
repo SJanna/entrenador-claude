@@ -2,9 +2,11 @@
  * Calcula y publica el JSON de la página pública. Lo llama el cron cada noche
  * y, desde el panel (con login), la vista previa.
  *
- *  - Km, tirada larga e hitos salen del histórico de intervals.icu, entero, en
- *    una petición. Si intervals falla no se publica nada: la página sigue con
- *    lo de ayer, que lleva su fecha.
+ *  - Km, tirada larga, hitos, sesiones de ayer, pulso fijo y predicción salen
+ *    del histórico de Garmin que guarda la app (D1, lo llena el cron cada
+ *    hora), con los últimos días releídos en vivo porque Garmin sincroniza
+ *    tarde. Si el histórico no está o está vacío no se publica nada: la página
+ *    sigue con lo de ayer, que lleva su fecha. intervals.icu no se usa.
  *  - El cumplimiento sale de Garmin, que es donde vive el plan. Se guardan las
  *    sesiones en D1 y se releen solo los últimos 21 días (Garmin sincroniza
  *    tarde). Si Garmin falla, el cumplimiento se queda en el último día leído y
@@ -15,18 +17,17 @@
 
 import type { AppConfig, Env } from "../env";
 import { addDays } from "../dates";
-import * as fmt from "../intervals/format";
-import { IntervalsClient, type JsonRecord } from "../intervals/client";
 import { GarminAlmacen } from "../garmin/almacen";
 import { GarminCliente } from "../garmin/cliente";
 import { leerCalendario, MAX_MESES, type ItemCalendario } from "../garmin/calendario";
-import { listarActividades } from "../garmin/actividades";
+import { listarActividades, type Actividad } from "../garmin/actividades";
 import { leerUmbrales } from "../garmin/umbrales";
+import { conClima, HistoricoStore, type FilaActividad } from "../historico/store";
 import {
   calcularProgreso,
   categoriaDe,
-  categoriaIntervals,
   emparejar,
+  TIPOS_CARRERA,
   type ActividadKm,
   type ProgresoPublico,
   type SesionHecha,
@@ -40,12 +41,6 @@ export const DIAS_EN_VIVO = 21;
 /** La clave de KV que lee la página. */
 export const CLAVE_KV = "progreso.json";
 
-const HISTORICO_DESDE = "2000-01-01";
-// «name» solo para descartar caminatas y terapia: no sale de esta función.
-const CAMPOS_ACTIVIDAD = [
-  "id", "type", "name", "start_date_local", "distance", "moving_time", "elapsed_time",
-  "average_heartrate", "max_heartrate", "average_weather_temp", "gap",
-];
 
 export interface FilaDiagnostico {
   fecha: string;
@@ -64,30 +59,73 @@ export interface ResultadoPublico {
   publicado: boolean;
   avisos: string[];
   /** Solo para la vista previa del panel: lleva títulos, nunca sale a KV. */
-  diagnostico: { leidoDesde: string | null; leidoHasta: string | null; sesiones: FilaDiagnostico[] };
+  diagnostico: {
+    leidoDesde: string | null;
+    leidoHasta: string | null;
+    sesiones: FilaDiagnostico[];
+    /** Las últimas carreras tal como entran al cálculo, para cuadrarlas con Garmin Connect. */
+    carreras: FilaCarrera[];
+  };
 }
 
-function numero(v: unknown): number | null {
-  const n = Number(v);
-  return v != null && v !== "" && Number.isFinite(n) ? n : null;
+export interface FilaCarrera {
+  fecha: string;
+  titulo: string;
+  deporte: string;
+  km: number;
+  minutos: number | null;
+  /** Ritmo ajustado por pendiente, en s/km. */
+  gap: number | null;
+  temp: number | null;
 }
 
-/** Km de cada actividad, del histórico entero de intervals.icu. */
-export async function actividadesKm(client: IntervalsClient, hoy: string): Promise<ActividadKm[]> {
-  const lista = await client.activities(HISTORICO_DESDE, hoy, 5000, CAMPOS_ACTIVIDAD);
-  return lista
-    .map((a: JsonRecord) => ({
-      fecha: fmt.dateShort(a.start_date_local),
-      tipo: String(a.type ?? ""),
-      km: Number(a.distance) / 1000,
-      categoria: categoriaIntervals(String(a.type ?? ""), String(a.name ?? "")),
-      segundos: numero(fmt.firstPresent(a, ["moving_time", "elapsed_time"])),
-      fcMedia: numero(a.average_heartrate),
-      fcMax: numero(a.max_heartrate),
-      temp: numero(a.average_weather_temp),
-      gap: numero(a.gap),
-    }))
-    .filter((a) => /^\d{4}-\d{2}-\d{2}$/.test(a.fecha) && Number.isFinite(a.km));
+/** Lo que entra al cálculo de una fila del histórico de Garmin. «nombre» solo descarta caminatas y terapia. */
+export function actividadDeFila(f: FilaActividad): ActividadKm {
+  const nombre = f.nombre ?? "";
+  return {
+    fecha: f.fecha,
+    tipo: f.deporte,
+    km: (f.distancia_m ?? 0) / 1000,
+    categoria: categoriaDe(f.deporte, nombre),
+    // Tiempo en movimiento, como siempre: las paradas para beber no cuentan.
+    segundos: f.segundos_mov ?? f.segundos,
+    fcMedia: f.fc_media,
+    fcMax: f.fc_max ?? null,
+    temp: f.temp_clima ?? null,
+    gap: f.gap_ms ?? null,
+  };
+}
+
+/**
+ * Las actividades de la serie: el histórico de Garmin entero (D1) y, encima,
+ * las de los últimos días leídas en vivo (Garmin sincroniza tarde y una
+ * actividad se edita después). De lo vivo se toma el resumen; el GAP, si no
+ * viene, y el clima, que es una llamada aparte, salen de D1.
+ */
+export function mezclarActividades(guardadas: FilaActividad[], vivas: Actividad[]): FilaActividad[] {
+  const porId = new Map(guardadas.map((f) => [f.id, f]));
+  for (const a of vivas) {
+    const antes = porId.get(a.id);
+    porId.set(a.id, {
+      ...(antes ?? { inicio: null, efecto_aerobico: null, detalle_estado: "pendiente", detalle_error: null }),
+      id: a.id,
+      fecha: a.fecha,
+      deporte: a.deporte,
+      nombre: a.nombre,
+      segundos: a.segundos,
+      segundos_mov: a.segundosMov,
+      distancia_m: a.distanciaM,
+      desnivel_m: a.desnivelM,
+      fc_media: a.fcMedia,
+      fc_max: a.fcMax,
+      carga: a.carga,
+      gap_ms: a.gapMs ?? antes?.gap_ms ?? null,
+      temp_clima: antes?.temp_clima ?? null,
+    });
+  }
+  return [...porId.values()]
+    .filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f.fecha))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
 }
 
 /** Tramos de como mucho MAX_MESES meses naturales, que es lo que lee el calendario. */
@@ -158,7 +196,7 @@ export async function actualizarCumplimiento(
   cfg: ConfigPublica,
   hoy: string,
   ahora: string,
-): Promise<ResultadoPublico["diagnostico"]> {
+): Promise<Omit<ResultadoPublico["diagnostico"], "carreras">> {
   const t0 = [...cfg.temporadas].sort((a, b) => a.numero - b.numero)[0];
   const hasta = addDays(hoy, -1);
   const vivo = addDays(hoy, -DIAS_EN_VIVO);
@@ -177,7 +215,16 @@ export async function actualizarCumplimiento(
     items.push(...calendario.items);
   }
 
-  const entrenos = items.filter((i) => i.tipo === "workout");
+  // El calendario se lee por meses y Garmin repite en cada mes los días de las
+  // semanas que lo tocan: la misma cita sale dos veces. Una por programación.
+  const vistas = new Set<number>();
+  const entrenos = items.filter((i) => {
+    if (i.tipo !== "workout") return false;
+    if (i.scheduleId === null) return true;
+    if (vistas.has(i.scheduleId)) return false;
+    vistas.add(i.scheduleId);
+    return true;
+  });
   const duraciones = await duracionesEntrenos(
     cliente,
     new Set(entrenos.map((i) => i.workoutId).filter((id): id is number => id !== null)),
@@ -257,12 +304,36 @@ export async function calcularPublico(
   const avisos: string[] = [];
 
   let cfg = await store.config();
-  const actividades = await actividadesKm(new IntervalsClient(config), hoy);
+  const garmin = () => opciones.garmin ?? new GarminCliente(new GarminAlmacen(env.DB, env.SESSION_SECRET));
 
-  let diagnostico: ResultadoPublico["diagnostico"] = { leidoDesde: null, leidoHasta: null, sesiones: [] };
+  // Las actividades: el histórico de Garmin de la app. Sin él no se publica
+  // nada (lanzar aquí deja la página con lo de ayer, que lleva su fecha).
+  const historico = new HistoricoStore(env.DB);
+  if (!(await historico.disponible())) {
+    throw new Error("No hay histórico de Garmin (falta la migración 0010): no se calcula la página.");
+  }
+  const guardadas = await historico.actividades();
+  if (!guardadas.length) {
+    throw new Error("El histórico de Garmin está vacío (¿Garmin sin enlazar?): no se calcula la página.");
+  }
+  let vivas: Actividad[] = [];
   try {
-    const garmin = opciones.garmin ?? new GarminCliente(new GarminAlmacen(env.DB, env.SESSION_SECRET));
-    diagnostico = await actualizarCumplimiento(garmin, store, cfg, hoy, ahora);
+    vivas = await actividadesGarmin(garmin(), addDays(hoy, -DIAS_EN_VIVO), hoy);
+  } catch (exc) {
+    avisos.push(
+      "Últimos días sin releer de Garmin (se usa el histórico guardado): " +
+        (exc instanceof Error ? exc.message : String(exc)),
+    );
+  }
+  if (!(await historico.conGapYClima())) {
+    avisos.push("Falta la migración 0011 (npm run db:migrate): sin GAP ni clima, no hay pulso fijo, predicción ni temperatura.");
+  }
+  const filas = mezclarActividades(guardadas, vivas);
+  const actividades = filas.map(actividadDeFila);
+
+  let diagnostico: ResultadoPublico["diagnostico"] = { leidoDesde: null, leidoHasta: null, sesiones: [], carreras: [] };
+  try {
+    diagnostico = { ...(await actualizarCumplimiento(garmin(), store, cfg, hoy, ahora)), carreras: [] };
     cfg = await store.config();
   } catch (exc) {
     avisos.push(
@@ -274,8 +345,7 @@ export async function calcularPublico(
   // Las zonas de FC del reloj: sin ellas valen las de siempre.
   let zonasFc: number[] | null = null;
   try {
-    const garmin = opciones.garmin ?? new GarminCliente(new GarminAlmacen(env.DB, env.SESSION_SECRET));
-    zonasFc = (await leerUmbrales(garmin, hoy, {}, "RUNNING")).zonas?.suelos ?? null;
+    zonasFc = (await leerUmbrales(garmin(), hoy, {}, "RUNNING")).zonas?.suelos ?? null;
     if (!zonasFc) avisos.push("Garmin no dio zonas de FC: se usan 134/155/172.");
   } catch (exc) {
     avisos.push("Zonas de FC sin leer (se usan 134/155/172): " + (exc instanceof Error ? exc.message : String(exc)));
@@ -302,6 +372,30 @@ export async function calcularPublico(
   });
   const json = JSON.stringify(publico);
   const errores = erroresPublicos(publico);
+
+  // Para cuadrar con Garmin Connect: las últimas carreras tal como entran, y
+  // cuántas de la serie no traen GAP o clima (sin GAP no hay pulso fijo ni
+  // predicción; sin clima, la sesión de ayer sale sin temperatura).
+  const t1 = cfg.temporadas.find((t) => t.numero === 1);
+  const inicio = t1?.desde ?? t0?.desde ?? hoy;
+  const carreras = filas.filter((f) => TIPOS_CARRERA.has(f.deporte) && (f.distancia_m ?? 0) > 0);
+  diagnostico.carreras = carreras.slice(-8).reverse().map((f) => {
+    const a = actividadDeFila(f);
+    return {
+      fecha: f.fecha,
+      titulo: f.nombre ?? "",
+      deporte: f.deporte,
+      km: Math.round(a.km * 100) / 100,
+      minutos: a.segundos ? Math.round(a.segundos / 60) : null,
+      gap: a.gap ? Math.round(1000 / a.gap) : null,
+      temp: a.temp ?? null,
+    };
+  });
+  const deLaSerie = carreras.filter((f) => f.fecha >= inicio && f.fecha < hoy);
+  const sinGap = deLaSerie.filter((f) => !f.gap_ms).length;
+  const sinClima = deLaSerie.filter((f) => f.temp_clima == null && conClima(f.deporte)).length;
+  if (sinGap) avisos.push(`${sinGap} de ${deLaSerie.length} carreras desde el ${inicio} sin GAP de Garmin.`);
+  if (sinClima) avisos.push(`${sinClima} de ${deLaSerie.length} carreras desde el ${inicio} sin clima todavía (se pide poco a poco cada hora).`);
 
   let publicado = false;
   if (opciones.publicar) {

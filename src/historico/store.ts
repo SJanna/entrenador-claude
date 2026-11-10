@@ -14,6 +14,16 @@ export interface FilaActividad extends ActividadH {
   efecto_aerobico: number | null;
   detalle_estado: string;
   detalle_error: string | null;
+  /** Migración 0011: GAP en m/s y temperatura del clima en °C. */
+  gap_ms?: number | null;
+  temp_clima?: number | null;
+  clima_estado?: string;
+}
+
+/** Carrera al aire libre: lo único que tiene clima. Cinta y virtual, no. */
+const CON_CLIMA = new Set(["running", "trail_running", "street_running", "track_running"]);
+export function conClima(deporte: string): boolean {
+  return CON_CLIMA.has(deporte);
 }
 
 export interface FilaBienestar {
@@ -45,7 +55,21 @@ export interface Cobertura {
 const nowIso = () => new Date().toISOString();
 
 export class HistoricoStore {
+  private columnasGarmin: Promise<boolean> | null = null;
+
   constructor(private readonly db: D1Database) {}
+
+  /**
+   * ¿Está la migración 0011 (GAP y clima)? Si el código llega antes que la
+   * migración, el histórico sigue funcionando como antes, sin esos dos datos.
+   */
+  conGapYClima(): Promise<boolean> {
+    this.columnasGarmin ??= this.db
+      .prepare("SELECT gap_ms, temp_clima, clima_estado FROM g_actividades LIMIT 0")
+      .all()
+      .then(() => true, () => false);
+    return this.columnasGarmin;
+  }
 
   /** ¿Está la migración 0010? Sin ella el histórico no existe y se dice. */
   async disponible(): Promise<boolean> {
@@ -65,7 +89,52 @@ export class HistoricoStore {
       .bind(...lista.map((a) => a.id))
       .all<{ id: number }>();
     const conocidas = new Set(antes.results.map((r) => r.id));
+    if (!(await this.conGapYClima())) {
+      await this.guardarActividadesSin0011(lista, aplicaDetalle, ts);
+      return lista.filter((a) => !conocidas.has(a.id)).length;
+    }
     // Upsert del resumen sin tocar el detalle ya calculado.
+    await this.db.batch(
+      lista.map((a) =>
+        this.db
+          .prepare(
+            "INSERT INTO g_actividades (id, fecha, inicio, deporte, nombre, segundos, segundos_mov, " +
+              "distancia_m, fc_media, fc_max, desnivel_m, carga, efecto_aerobico, detalle_estado, " +
+              "actualizado_en, gap_ms, clima_estado) " +
+              "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17) " +
+              "ON CONFLICT(id) DO UPDATE SET fecha = excluded.fecha, inicio = excluded.inicio, " +
+              "deporte = excluded.deporte, nombre = excluded.nombre, segundos = excluded.segundos, " +
+              "segundos_mov = excluded.segundos_mov, distancia_m = excluded.distancia_m, " +
+              "fc_media = excluded.fc_media, fc_max = excluded.fc_max, desnivel_m = excluded.desnivel_m, " +
+              "carga = excluded.carga, efecto_aerobico = excluded.efecto_aerobico, " +
+              // Si cambió el deporte (un paseo que era carrera), vuelve a pedir series.
+              "detalle_estado = CASE WHEN g_actividades.detalle_estado = 'no_aplica' AND " +
+              "excluded.detalle_estado = 'pendiente' THEN 'pendiente' ELSE g_actividades.detalle_estado END, " +
+              // Un GAP que no viene no borra el que ya había.
+              "gap_ms = COALESCE(excluded.gap_ms, g_actividades.gap_ms), " +
+              // Y lo mismo con el clima: si pasa a ser carrera al aire libre, se pide.
+              "clima_estado = CASE WHEN g_actividades.clima_estado = 'no_aplica' AND " +
+              "excluded.clima_estado = 'pendiente' THEN 'pendiente' " +
+              "WHEN excluded.clima_estado = 'no_aplica' THEN 'no_aplica' ELSE g_actividades.clima_estado END, " +
+              "actualizado_en = excluded.actualizado_en",
+          )
+          .bind(
+            a.id, a.fecha, a.fecha && a.hora ? `${a.fecha}T${a.hora}` : null, a.deporte, a.nombre,
+            a.segundos, a.segundosMov, a.distanciaM, a.fcMedia, a.fcMax, a.desnivelM, a.carga,
+            a.efectoAerobico, aplicaDetalle(a.deporte) ? "pendiente" : "no_aplica", ts,
+            a.gapMs ?? null, conClima(a.deporte) ? "pendiente" : "no_aplica",
+          ),
+      ),
+    );
+    return lista.filter((a) => !conocidas.has(a.id)).length;
+  }
+
+  /** Lo de siempre, sin GAP ni clima: para una base sin la migración 0011. */
+  private async guardarActividadesSin0011(
+    lista: Actividad[],
+    aplicaDetalle: (deporte: string) => boolean,
+    ts: string,
+  ): Promise<void> {
     await this.db.batch(
       lista.map((a) =>
         this.db
@@ -78,7 +147,6 @@ export class HistoricoStore {
               "segundos_mov = excluded.segundos_mov, distancia_m = excluded.distancia_m, " +
               "fc_media = excluded.fc_media, fc_max = excluded.fc_max, desnivel_m = excluded.desnivel_m, " +
               "carga = excluded.carga, efecto_aerobico = excluded.efecto_aerobico, " +
-              // Si cambió el deporte (un paseo que era carrera), vuelve a pedir series.
               "detalle_estado = CASE WHEN g_actividades.detalle_estado = 'no_aplica' AND " +
               "excluded.detalle_estado = 'pendiente' THEN 'pendiente' ELSE g_actividades.detalle_estado END, " +
               "actualizado_en = excluded.actualizado_en",
@@ -90,7 +158,6 @@ export class HistoricoStore {
           ),
       ),
     );
-    return lista.filter((a) => !conocidas.has(a.id)).length;
   }
 
   async pendientesDeDetalle(limite: number): Promise<Array<{ id: number }>> {
@@ -117,6 +184,41 @@ export class HistoricoStore {
         d.estado, d.error ?? null, d.desacople ?? null, d.mejores ? JSON.stringify(d.mejores) : null,
         d.fcMax ?? null, nowIso(), id,
       )
+      .run();
+  }
+
+  /** Carreras al aire libre sin clima todavía, de la más nueva a la más vieja. */
+  async pendientesDeClima(limite: number): Promise<Array<{ id: number }>> {
+    if (limite <= 0 || !(await this.conGapYClima())) return [];
+    const r = await this.db
+      .prepare(
+        "SELECT id FROM g_actividades WHERE clima_estado = 'pendiente' " +
+          "ORDER BY clima_intentos, fecha DESC LIMIT ?1",
+      )
+      .bind(limite)
+      .all<{ id: number }>();
+    return r.results;
+  }
+
+  /** null = Garmin no tiene clima de esa actividad: no se vuelve a pedir. */
+  async guardarClima(id: number, tempC: number | null): Promise<void> {
+    await this.db
+      .prepare(
+        "UPDATE g_actividades SET temp_clima = ?1, clima_estado = ?2, actualizado_en = ?3 WHERE id = ?4",
+      )
+      .bind(tempC, tempC === null ? "sin_datos" : "hecho", nowIso(), id)
+      .run();
+  }
+
+  /** Fallo transitorio del clima: al tercero, 'error' y no se insiste. */
+  async falloClima(id: number, maxIntentos = 3): Promise<void> {
+    await this.db
+      .prepare(
+        "UPDATE g_actividades SET clima_intentos = clima_intentos + 1, " +
+          "clima_estado = CASE WHEN clima_intentos + 1 >= ?1 THEN 'error' ELSE 'pendiente' END, " +
+          "actualizado_en = ?2 WHERE id = ?3",
+      )
+      .bind(maxIntentos, nowIso(), id)
       .run();
   }
 
