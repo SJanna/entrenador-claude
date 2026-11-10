@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { GarminCliente } from "../src/garmin/cliente";
-import { formatearDias, leerDia } from "../src/garmin/bienestar";
+import { formatearDias, leerDia, siestasDe } from "../src/garmin/bienestar";
 import { GarminTools } from "../src/tools/garminTools";
 
 interface Guion {
@@ -204,6 +204,30 @@ describe("formato", () => {
     expect(dos).toContain("2026-09-15");
     expect(dos).toContain("Detalle del 2026-09-16:");
     expect(dos).toContain("VO₂máx 52.4");
+  });
+
+  it("la siesta se suma al sueño de la noche, en columna aparte y en el detalle", async () => {
+    const { falso } = cliente(DIA_COMPLETO);
+    const dia = { ...(await leerDia(falso, "a", "2026-09-16")), siestaSegundos: 2700 };
+    const texto = formatearDias([dia]);
+    expect(texto).toMatch(/noche\s+siesta\s+total/);
+    expect(texto).toMatch(/2026-09-16 .* 7:20 +0:45 +8:05/);
+    expect(texto).toContain("Sueño en 24 h: noche 7:20 + siesta 0:45 = 8:05");
+  });
+
+  it("sin siesta, el total es la noche y no hay línea de 24 h", async () => {
+    const { falso } = cliente(DIA_COMPLETO);
+    const dia = await leerDia(falso, "a", "2026-09-16");
+    expect(dia.siestaSegundos).toBeNull();
+    const texto = formatearDias([dia]);
+    expect(texto).toMatch(/2026-09-16 .* 7:20 +— +7:20/);
+    expect(texto).not.toContain("Sueño en 24 h");
+  });
+
+  it("la siesta se lee de la lista de siestas o, si no está, del total", () => {
+    expect(siestasDe({ dailyNapDTOS: [{ napTimeSec: 1200 }, { napTimeSec: 900 }] }, {})).toBe(2100);
+    expect(siestasDe({}, { napTimeSeconds: 1800 })).toBe(1800);
+    expect(siestasDe({ dailyNapDTOS: [] }, { napTimeSeconds: 0 })).toBeNull();
   });
 
   it("lo que falta sale como «—», no como cero", async () => {

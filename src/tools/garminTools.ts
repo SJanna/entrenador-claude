@@ -84,6 +84,29 @@ function duracion(segundos: unknown): string {
   return horas ? `${horas}h${String(minutos).padStart(2, "0")}` : `${minutos} min`;
 }
 
+/** Qué es una programación de Garmin: nombre, fecha y entreno. null si no lo parece. */
+export function describirCita(
+  bruto: unknown,
+): { nombre: string; fecha: string; workoutId: number | null } | null {
+  if (!bruto || typeof bruto !== "object" || Array.isArray(bruto)) return null;
+  const c = bruto as Record<string, unknown>;
+  const entreno =
+    c.workout && typeof c.workout === "object" ? (c.workout as Record<string, unknown>) : {};
+  const fecha = [c.calendarDate, c.date, c.scheduleDate].find(
+    (v): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v),
+  );
+  if (!fecha) return null;
+  const nombre = [entreno.workoutName, c.workoutName, c.title].find(
+    (v): v is string => typeof v === "string" && v.trim() !== "",
+  );
+  const workoutId = Number(entreno.workoutId ?? c.workoutId);
+  return {
+    nombre: nombre?.trim() ?? "(sin nombre)",
+    fecha: fecha.slice(0, 10),
+    workoutId: Number.isFinite(workoutId) && workoutId > 0 ? workoutId : null,
+  };
+}
+
 export class GarminTools {
   constructor(
     private readonly cliente: GarminCliente,
@@ -292,6 +315,7 @@ export class GarminTools {
         desde,
         hasta,
         args.debug === true,
+        Boolean(this.ajustesIntervals),
       );
     });
   }
@@ -410,6 +434,55 @@ export class GarminTools {
         "        id  duración  deporte             actualizado  nombre",
         ...filas,
       ].join("\n");
+    });
+  }
+
+  /**
+   * Quita una sola cita del calendario. Un entreno reutilizado (la caminata de
+   * cada día) tiene muchas programaciones y un solo id de entreno: borrarlo se
+   * lleva todas. Aquí se borra la programación, que es una fecha.
+   */
+  async desprogramar(args: Record<string, unknown>): Promise<string> {
+    return this.intentar(async () => {
+      const id = Number(args.schedule_id ?? args.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw new EntrenoError(
+          "Falta 'schedule_id': el número de la columna «programación» de garmin_list_calendar " +
+            "(no el id del entreno).",
+        );
+      }
+      // Antes de quitar nada, qué es: un id de entreno o de actividad pasado por
+      // error no debe borrar una cita al azar.
+      const cita = describirCita(await this.json(`/workout-service/schedule/${id}`));
+      if (!cita) {
+        throw new EntrenoError(
+          `Garmin no reconoce ${id} como una programación. Mira la columna «programación» de ` +
+            "garmin_list_calendar: el id del entreno y el de la actividad no valen aquí.",
+        );
+      }
+      if (args.confirm !== true) {
+        return (
+          `Sin quitar. La programación ${id} es «${cita.nombre}» el ${cita.fecha}` +
+          `${cita.workoutId ? ` (entreno ${cita.workoutId})` : ""}. ` +
+          "Si es la que quieres quitar, repite con confirm: true. El entreno y sus otras " +
+          "fechas no se tocan."
+        );
+      }
+      const respuesta = await this.cliente.api(`/workout-service/schedule/${id}`, {
+        method: "DELETE",
+      });
+      await respuesta.body?.cancel();
+      if (!respuesta.ok && respuesta.status !== 204) {
+        throw new GarminError(
+          "protocolo",
+          `Garmin no quitó la programación ${id} (${respuesta.status}).`,
+        );
+      }
+      return (
+        `Quitado del calendario: «${cita.nombre}» el ${cita.fecha}. El entreno sigue en la ` +
+        "biblioteca con sus otras fechas. El reloj lo deja de ver en la próxima sincronización; " +
+        "compruébalo con garmin_list_calendar."
+      );
     });
   }
 

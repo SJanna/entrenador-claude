@@ -4,7 +4,7 @@
  * Garmin, que escriben entrenos sin pasar por intervals.
  */
 
-import type { AppConfig, Env } from "../env";
+import { paginaPublicaActiva, type AppConfig, type Env } from "../env";
 import { IntervalsTools } from "./intervalsTools";
 import { ContractTools } from "./contractTools";
 import { MaterialTools } from "./materialTools";
@@ -85,7 +85,9 @@ export function serverInstructions(m: Modulos): string {
       "la cobertura: si dice HISTÓRICO INCOMPLETO, lo que saques es provisional y se dice.",
     "ANTES de programar o recomendar carga: llama a `briefing`. Trae en una sola llamada el " +
       "contrato compacto, los disparadores vencidos, el bienestar y las actividades recientes " +
-      "de Garmin y LOS calendarios, y marca los días sin nada escrito. Nunca programes desde " +
+      "de Garmin y " +
+      (m.intervals ? "LOS calendarios" : "el calendario de Garmin con lo ya programado") +
+      ", y marca los días sin nada escrito. Nunca programes desde " +
       "el recuerdo de otra conversación: lo que no leíste hoy, no lo sabes.",
     "Todo acuerdo termina en UNA llamada a contract_commit: atómica, escribe el log " +
       "(append-only), aplica los cambios y sube la versión. Nunca digas que algo quedó escrito " +
@@ -108,7 +110,9 @@ export function serverInstructions(m: Modulos): string {
     "ENTRENOS: garmin_create_workout escribe directo en Garmin y es la ruta por defecto: los " +
       "pasos llegan al reloj tal cual. Los rangos van como lista [min, max]. Después de " +
       "escribir una sesión que importe, léela con garmin_get_workout y compara el NÚMERO DE " +
-      "PASOS, no solo la duración." +
+      "PASOS, no solo la duración. Para quitar UNA fecha de un entreno reutilizado, " +
+      "garmin_unschedule_workout con su id de programación; garmin_delete_workout borra el " +
+      "entreno con todas sus fechas." +
       (m.intervals
         ? " create_workout (intervals) solo cuando haga falta lo que Garmin no tiene: rampas " +
           "dentro de un paso o la carga proyectada en intervals. Lo de un calendario no se ve " +
@@ -150,7 +154,8 @@ export function buildTools(
   const intervals = config.intervals
     ? new IntervalsTools(config)
     : (null as unknown as IntervalsTools);
-  const conPublico = Boolean(env.PUBLICO);
+  const conPublico = paginaPublicaActiva(env);
+  const conI = config.intervals;
   const historicoStore = new HistoricoStore(env.DB);
   const store = new ContractStore(env.DB, config.today);
   const materialStore = new MaterialStore(env.DB);
@@ -179,8 +184,10 @@ export function buildTools(
         "bienestar y actividades recientes de Garmin, " +
         (config.intervals ? "los DOS calendarios (Garmin e intervals), " : "el calendario de Garmin, ") +
         "la carga de las últimas 4 semanas (histórico de Garmin, con CTL/ATL/TSB) " +
-        "y marca los días de los próximos 7 SIN nada escrito y los programados en los dos " +
-        "calendarios. Lo que no se pudo leer sale como NO LEÍDO: sobre eso no se programa.",
+        "y marca los días de los próximos 7 SIN nada escrito y la misma sesión escrita dos " +
+        "veces" +
+        (conI ? " (también entre los dos calendarios)" : "") +
+        ". Lo que no se pudo leer sale como NO LEÍDO: sobre eso no se programa.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1201,8 +1208,8 @@ export function buildTools(
       description:
         "Volumen y carga por semana (lunes a domingo) desde el histórico de Garmin guardado en " +
         "la app: sesiones, horas, km corriendo y a pie, desnivel, carga, y CTL/ATL/TSB (medias de " +
-        "42 y 7 días sobre la carga de Garmin). Empieza diciendo cuánto histórico hay detrás. " +
-        "Sustituye a get_weekly_summary de intervals.",
+        "42 y 7 días sobre la carga de Garmin). Empieza diciendo cuánto histórico hay detrás." +
+        (conI ? " Sustituye a get_weekly_summary de intervals." : ""),
       inputSchema: {
         type: "object",
         properties: { weeks: { type: "number", description: "Semanas (1-52, por defecto 8)." } },
@@ -1327,8 +1334,12 @@ export function buildTools(
       description:
         "Los umbrales de un deporte —FC de umbral (LTHR), FC máxima, FTP y ritmo de umbral— " +
         "con la fuente de cada uno. MANDA Garmin, que es el origen de los datos y lo que " +
-        "acaba en el reloj; intervals.icu sirve de respaldo cuando Garmin no tiene ese " +
-        "umbral, y cuando los dos no coinciden se avisa con un ⚠. Enseña también las ZONAS de FC del reloj cuando Garmin las publica, que no tienen por qué ser las de intervals. " +
+        "acaba en el reloj" +
+        (conI
+          ? "; intervals.icu sirve de respaldo cuando Garmin no tiene ese umbral, y cuando los " +
+            "dos no coinciden se avisa con un ⚠. "
+          : ". ") +
+        "Enseña también las ZONAS de FC del reloj cuando Garmin las publica. " +
         "Son los que garmin_create_workout usa para convertir los porcentajes. Míralos antes " +
         "de prescribir en porcentaje: un umbral desactualizado no da error, escribe un paso " +
         "plausible y falso en el reloj.",
@@ -1354,10 +1365,11 @@ export function buildTools(
       name: "garmin_activities",
       title: "Actividades de Garmin",
       description:
-        "Las actividades tal y como las registró el reloj, sin pasar por intervals.icu. " +
+        "Las actividades tal y como las registró el reloj, en vivo. " +
         "Devuelve id, fecha, deporte, duración, distancia y FC. Para el detalle de una sesión " +
         "—y en fuerza, LAS SERIES: ejercicio, repeticiones y peso— usa garmin_activity con su " +
-        "id. Para histórico largo y análisis, get_activities de intervals sigue siendo mejor.",
+        "id. Para histórico largo y análisis, garmin_search_activities y garmin_weekly_summary " +
+        "(histórico guardado en la app).",
       inputSchema: {
         type: "object",
         properties: {
@@ -1379,8 +1391,7 @@ export function buildTools(
       title: "Una actividad, con sus series",
       description:
         "El detalle de una actividad de Garmin y, si fue de FUERZA, sus series: ejercicio, " +
-        "repeticiones, peso y tiempo, una a una, más el volumen total levantado. Este dato no " +
-        "existe en intervals.icu, donde una sesión de fuerza es un bloque de minutos: es lo " +
+        "repeticiones, peso y tiempo, una a una, más el volumen total levantado: es lo " +
         "que hace falta para subir una escalera de carga variable a variable. La columna «enum " +
         "de Garmin» es lo que hay que pasar como 'category' y 'exercise' al prescribir para " +
         "que el reloj enseñe el nombre del ejercicio.",
@@ -1399,11 +1410,14 @@ export function buildTools(
       title: "Calendario de Garmin",
       description:
         "Qué hay escrito en el calendario de GARMIN entre dos fechas: entrenos programados, " +
-        "actividades hechas y notas, con el id del entreno y el de la programación. " +
-        "IMPRESCINDIBLE antes de programar nada en Garmin: list_events solo ve el calendario " +
-        "de intervals.icu, así que lo que esté escrito aquí le parece un hueco vacío y la " +
-        "semana se escribe dos veces. Son dos calendarios distintos y hay que mirar los dos. " +
-        "Garmin sirve el calendario mes a mes: el rango se limita a 6 meses.",
+        "actividades hechas y notas, con el id del entreno y el de la programación (el que " +
+        "usa garmin_unschedule_workout para quitar una sola cita). IMPRESCINDIBLE antes de " +
+        "programar nada en Garmin: lo que ya esté escrito y no se mire se escribe dos veces." +
+        (conI
+          ? " list_events solo ve el calendario de intervals.icu: son dos calendarios distintos " +
+            "y hay que mirar los dos."
+          : "") +
+        " Garmin sirve el calendario mes a mes: el rango se limita a 6 meses.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1501,9 +1515,13 @@ export function buildTools(
       title: "Programar entreno de Garmin",
       description:
         "Pone un entreno que ya existe en Garmin en una fecha del calendario, para que el " +
-        "reloj lo recoja en la próxima sincronización. OJO: lo programado aquí NO aparece en " +
-        "intervals.icu ni en list_events, y su carga no entra en los CTL/ATL proyectados de " +
-        "intervals. Para ver lo programado en Garmin, garmin_list_calendar.",
+        "reloj lo recoja en la próxima sincronización. El mismo entreno se puede programar en " +
+        "varias fechas; para quitar UNA de ellas, garmin_unschedule_workout. " +
+        (conI
+          ? "OJO: lo programado aquí NO aparece en intervals.icu ni en list_events, y su carga " +
+            "no entra en los CTL/ATL proyectados de intervals. "
+          : "") +
+        "Para ver lo programado en Garmin, garmin_list_calendar.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1537,8 +1555,11 @@ export function buildTools(
       name: "garmin_delete_workout",
       title: "Borrar entreno de Garmin",
       description:
-        "Borra un entreno de la biblioteca de Garmin. Si estaba programado, desaparece " +
-        "también del calendario. No toca nada de intervals.icu ni actividades ya hechas. " +
+        "Borra un entreno de la biblioteca de Garmin y, con él, TODAS sus fechas en el " +
+        "calendario. Para quitar una sola fecha de un entreno reutilizado, " +
+        "garmin_unschedule_workout. No toca actividades ya hechas" +
+        (conI ? " ni nada de intervals.icu" : "") +
+        ". " +
         "Sin confirm=true no borra: dice de qué entreno se trata para que se pueda comprobar " +
         "que el id es el correcto. No hay papelera.",
       inputSchema: {
@@ -1555,12 +1576,41 @@ export function buildTools(
       annotations: { readOnlyHint: false, destructiveHint: true, title: "Borrar entreno de Garmin" },
       run: (args) => garmin.borrarEntreno(args),
     },
+    {
+      name: "garmin_unschedule_workout",
+      title: "Quitar una fecha del calendario de Garmin",
+      description:
+        "Quita UNA cita del calendario de Garmin sin tocar el entreno ni sus otras fechas. " +
+        "Es lo que hace falta para mover o cancelar un día de un entreno reutilizado (la " +
+        "caminata diaria, el trote de 20): garmin_delete_workout se llevaría todas sus fechas. " +
+        "El id es el de la columna «programación» de garmin_list_calendar, no el del entreno. " +
+        "Sin confirm=true no quita nada: dice qué entreno y qué día son, para comprobarlo. " +
+        "Para MOVER una sesión: garmin_schedule_workout en la fecha nueva y después esta en la " +
+        "vieja.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          schedule_id: {
+            type: "number",
+            description: "Id de la programación (columna «programación» de garmin_list_calendar).",
+          },
+          confirm: {
+            type: "boolean",
+            description: "Falso por defecto: solo dice qué cita es. true la quita de verdad.",
+          },
+        },
+        required: ["schedule_id"],
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, title: "Quitar una fecha de Garmin" },
+      run: (args) => garmin.desprogramar(args),
+    },
   ];
 
   return todas.filter(
     (t) =>
       (config.intervals || !HERRAMIENTAS_INTERVALS.has(t.name)) &&
-      // La página pública calcula con intervals: sin él no se publica nada.
-      ((conPublico && config.intervals) || !HERRAMIENTAS_PUBLICO.has(t.name)),
+      // Misma condición que las instrucciones del servidor: anunciar una
+      // herramienta que luego no está es pedirle al modelo que la invente.
+      (conPublico || !HERRAMIENTAS_PUBLICO.has(t.name)),
   );
 }
