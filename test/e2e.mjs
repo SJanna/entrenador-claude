@@ -91,7 +91,7 @@ async function main() {
   console.log("— Migrando D1 local…");
   await new Promise((resolve, reject) => {
     // stdin cerrado y CI=true: que wrangler nunca se quede esperando un "y/n".
-    const mig = spawn("npx", ["wrangler", "d1", "migrations", "apply", "intervals-pro", "--local", "-c", CONFIG_E2E], {
+    const mig = spawn("npx", ["wrangler", "d1", "migrations", "apply", "DB", "--local", "-c", CONFIG_E2E], {
       stdio: ["ignore", "inherit", "inherit"],
       env: { ...process.env, CI: "true", WRANGLER_SEND_METRICS: "false" },
     });
@@ -181,7 +181,7 @@ async function main() {
   }).then((r) => r.json());
   check(
     "bearer correcto → mismo servidor MCP que la ruta con secreto",
-    bearerBien.result?.serverInfo?.name === "intervals-pro",
+    bearerBien.result?.serverInfo?.name === "zancada",
     JSON.stringify(bearerBien),
   );
 

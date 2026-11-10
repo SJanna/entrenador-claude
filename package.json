@@ -1,5 +1,5 @@
 {
-  "name": "intervals-mcp-cf",
+  "name": "zancada",
   "version": "1.0.0",
   "private": true,
   "description": "Entrenador personal en Claude sobre Cloudflare Workers: servidor MCP con Garmin, contrato de entrenamiento en D1 y panel web de solo lectura.",

@@ -224,7 +224,7 @@ npx wrangler login                       # abre el navegador
 
 # 1. Tu configuración: wrangler.jsonc no se sube al repo
 cp wrangler.example.jsonc wrangler.jsonc
-npx wrangler d1 create intervals-pro
+npx wrangler d1 create zancada
 #    → pega el "database_id" en wrangler.jsonc y ajusta INTERVALS_TZ
 
 # 2. Migraciones
@@ -262,8 +262,8 @@ En Cloudflare → tu Worker → **Settings → Build**:
    | Variable | Valor |
    |---|---|
    | `D1_DATABASE_ID` | el id de tu base (`npx wrangler d1 list`) |
-   | `WORKER_NAME` | el nombre de tu Worker, si no es `intervals-pro` |
-   | `D1_DATABASE_NAME` | el nombre de tu base, si no es `intervals-pro` |
+   | `WORKER_NAME` | el nombre de tu Worker, si no es `zancada` |
+   | `D1_DATABASE_NAME` | el nombre de tu base, si no es `zancada` |
    | `KV_PUBLICO_ID` | solo con página pública: el id del namespace |
    | `INTERVALS_TZ` | tu zona horaria, si no es `America/Bogota` |
    | `INTERVALS_ATHLETE_ID` | solo si usas intervals.icu |
@@ -303,14 +303,14 @@ en los dos sentidos.
 Comprueba que vive:
 
 ```sh
-curl https://intervals-pro.TU-SUBDOMINIO.workers.dev/healthz
-# {"status":"ok","service":"intervals-pro", …}
+curl https://zancada.TU-SUBDOMINIO.workers.dev/healthz
+# {"status":"ok","service":"zancada", …}
 ```
 
 Y con tu cuenta real (solo lectura):
 
 ```sh
-SMOKE_URL=https://intervals-pro.TU-SUBDOMINIO.workers.dev \
+SMOKE_URL=https://zancada.TU-SUBDOMINIO.workers.dev \
 SMOKE_SECRET=EL-VALOR-DE-MCP_SECRET_PATH \
 node scripts/smoke.mjs
 ```
@@ -319,7 +319,7 @@ node scripts/smoke.mjs
 
 1. Ajustes → Conectores → **Añadir conector personalizado**.
 2. Nombre: `Entrenador` · URL:
-   `https://intervals-pro.TU-SUBDOMINIO.workers.dev/EL-VALOR-DE-MCP_SECRET_PATH/mcp`
+   `https://zancada.TU-SUBDOMINIO.workers.dev/EL-VALOR-DE-MCP_SECRET_PATH/mcp`
 3. Sin OAuth: queda conectado directamente.
 
 Esa URL es una credencial: quien la tenga puede leer y escribir tu
@@ -334,7 +334,7 @@ cuando quieras, sin prisa.
 
 ## El panel web: «zancada»
 
-`https://intervals-pro.TU-SUBDOMINIO.workers.dev/app` → login con
+`https://zancada.TU-SUBDOMINIO.workers.dev/app` → login con
 `APP_PASSWORD` (cookie de 60 días).
 
 Todo sale de **Garmin** (el histórico que el cron guarda en D1 cada hora y el
