@@ -91,6 +91,24 @@ describe("set_plan_publico", () => {
     await tools.setPlanPublico({ hitos: [{ clave: "noche", fecha: null }] }, AHORA);
     expect(await store.hitosManuales()).toEqual([]);
   });
+
+  it("acepta los hitos manuales nuevos y rechaza una clave inventada con la lista de las válidas", async () => {
+    const { tools, store } = herramienta();
+    await tools.setPlanPublico(
+      { hitos: [{ clave: "sol", fecha: "2026-12-19" }, { clave: "secreto", fecha: "2026-12-20" }] },
+      AHORA,
+    );
+    const guardados = await store.hitosManuales();
+    expect(guardados).toEqual(
+      expect.arrayContaining([{ clave: "sol", fecha: "2026-12-19" }, { clave: "secreto", fecha: "2026-12-20" }]),
+    );
+    expect(guardados).toHaveLength(2);
+    const error = await tools.setPlanPublico({ hitos: [{ clave: "volcan", fecha: "2026-12-19" }] }, AHORA);
+    expect(error).toMatch(/No se ha escrito nada/);
+    expect(error).toContain(
+      "claves válidas horas3, supera_referencia, maraton, noche, km50, sol, km70, km120, secreto",
+    );
+  });
 });
 
 /** Garmin de mentira: calendario por mes, biblioteca de entrenos y actividades. */

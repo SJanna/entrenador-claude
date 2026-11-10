@@ -114,7 +114,7 @@ describe("tirada larga e hitos", () => {
   it("la referencia es lo mejor de antes de la T1", () => {
     const r = calcularProgreso(entrada({ actividades: historico }));
     expect(r.referencia).toEqual({ km: 31.1, fecha: "2026-01-31" });
-    expect(r.hitos[0]!.etiqueta).toBe("Más de 31,1 km");
+    expect(r.hitos.find((h) => h.clave === "supera_referencia")!.etiqueta).toBe("Más de 31,1 km");
     // La tirada larga es la de la serie pública (desde la T0), no la histórica.
     expect(r.tirada_larga).toEqual({ km: 25.5, fecha: "2026-11-29" });
   });
@@ -155,6 +155,59 @@ describe("tirada larga e hitos", () => {
     const por = Object.fromEntries(r.hitos.map((h) => [h.clave, h]));
     expect(por.maraton).toMatchObject({ fecha: "2027-03-14", manual: true });
     expect(por.noche).toMatchObject({ fecha: "2027-02-02", manual: true });
+  });
+
+  it("salen los 9 hitos, en el orden de la página, y pasan la lista blanca", () => {
+    const r = calcularProgreso(entrada({ actividades: historico }));
+    expect(r.hitos.map((h) => h.clave)).toEqual([
+      "horas3", "supera_referencia", "maraton", "noche", "km50", "sol", "km70", "km120", "secreto",
+    ]);
+    expect(r.hitos.map((h) => h.etiqueta)).toEqual([
+      "3 horas", "Más de 31,1 km", "Maratón · 42,2 km", "Primera salida de noche", "50 km",
+      "Sol de mediodía", "70 km", "120 km", "Secreto",
+    ]);
+    expect(erroresPublicos(r)).toEqual([]);
+  });
+
+  it("«3 horas» cae con la primera carrera desde la T1 que dura 3 h o más", () => {
+    const dura = (fecha: string, km: number, segundos: number): ActividadKm => ({ ...run(fecha, km), segundos });
+    const r = calcularProgreso(
+      entrada({
+        hoy: "2027-02-15",
+        actividades: [
+          ...historico,
+          dura("2026-12-06", 25, 4 * 3600), // T0: no cuenta
+          dura("2027-01-10", 22, 3 * 3600 - 1), // un segundo corto
+          dura("2027-01-17", 24.04, 3 * 3600),
+          dura("2027-01-24", 26, 3.5 * 3600),
+        ],
+      }),
+    );
+    const h = r.hitos.find((x) => x.clave === "horas3")!;
+    expect(h).toEqual({ clave: "horas3", etiqueta: "3 horas", km_objetivo: null, fecha: "2027-01-17", km: 24, manual: false });
+    expect(erroresPublicos(r)).toEqual([]);
+  });
+
+  it("«3 horas» sin duración no cae, y a mano manda sobre los datos", () => {
+    const sinDuracion = calcularProgreso(entrada({ hoy: "2027-02-15", actividades: [...historico, run("2027-01-17", 30)] }));
+    expect(sinDuracion.hitos.find((x) => x.clave === "horas3")!.fecha).toBeNull();
+
+    const manual = calcularProgreso(
+      entrada({
+        hoy: "2027-02-15",
+        actividades: [...historico, { ...run("2027-01-17", 24), segundos: 3 * 3600 }],
+        hitosManuales: [
+          { clave: "horas3", fecha: "2027-01-10" },
+          { clave: "sol", fecha: "2027-02-01" },
+          { clave: "secreto", fecha: "2027-02-14" },
+        ],
+      }),
+    );
+    const por = Object.fromEntries(manual.hitos.map((h) => [h.clave, h]));
+    expect(por.horas3).toMatchObject({ fecha: "2027-01-10", km: null, manual: true });
+    expect(por.sol).toMatchObject({ fecha: "2027-02-01", manual: true });
+    expect(por.secreto).toMatchObject({ fecha: "2027-02-14", manual: true });
+    expect(erroresPublicos(manual)).toEqual([]);
   });
 });
 

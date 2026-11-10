@@ -25,12 +25,15 @@ export const TIPOS_CARRERA = new Set(["Run", "TrailRun", "VirtualRun"]);
 
 /** Un maratón son 42,195 km; el GPS que mida menos se marca a mano. */
 export const HITOS = [
+  { clave: "horas3", etiqueta: "3 horas", km: null, segundos: 3 * 3600 },
   { clave: "supera_referencia", etiqueta: "Más de {ref} km", km: null },
   { clave: "maraton", etiqueta: "Maratón · 42,2 km", km: 42.195 },
+  { clave: "noche", etiqueta: "Primera salida de noche", km: null },
   { clave: "km50", etiqueta: "50 km", km: 50 },
+  { clave: "sol", etiqueta: "Sol de mediodía", km: null },
   { clave: "km70", etiqueta: "70 km", km: 70 },
   { clave: "km120", etiqueta: "120 km", km: 120 },
-  { clave: "noche", etiqueta: "Primera salida de noche", km: null },
+  { clave: "secreto", etiqueta: "Secreto", km: null },
 ] as const;
 
 export type ClaveHito = (typeof HITOS)[number]["clave"];
@@ -267,6 +270,11 @@ export function calcularProgreso(e: EntradaProgreso): ProgresoPublico {
     const manual = manuales.get(h.clave);
     if (manual) {
       return { clave: h.clave, etiqueta, km_objetivo: umbral, fecha: manual, km: null, manual: true };
+    }
+    // Por duración: la primera salida desde la T1 que dura eso o más.
+    if ("segundos" in h) {
+      const dura = desdeT1.find((a) => (a.segundos ?? 0) >= h.segundos) ?? null;
+      return { clave: h.clave, etiqueta, km_objetivo: null, fecha: dura?.fecha ?? null, km: dura ? redondear(dura.km) : null, manual: false };
     }
     // La referencia se SUPERA (más de); las distancias redondas se alcanzan.
     const cae =
