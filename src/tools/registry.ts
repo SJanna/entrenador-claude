@@ -1410,6 +1410,12 @@ export function buildTools(
         type: "object",
         properties: {
           activity_id: { type: "number", description: "Id de la actividad." },
+          debug: {
+            type: "boolean",
+            description:
+              "Añade qué claves trae Garmin en el detalle (solo los nombres, no los valores). " +
+              "Sirve si el entreno seguido o una columna no salen.",
+          },
         },
         required: ["activity_id"],
       },

@@ -157,6 +157,51 @@ describe("la actividad completa", () => {
     expect(texto).not.toContain("no tiene series");
   });
 
+  it("con el entreno asociado, cada vuelta lleva el número y la etiqueta de garmin_get_workout", async () => {
+    // Estructura real (umbral 2x6 del 10/11/2026): el reloj numera los pasos con
+    // cada «repetir» DETRÁS de sus hijos; garmin_get_workout, delante.
+    const paso = (d: string, tipo = "interval") => ({ type: "ExecutableStepDTO", description: d, stepType: { stepTypeKey: tipo } });
+    const ENTRENO = {
+      workoutId: 77,
+      workoutName: "Umbral 2x6",
+      workoutSegments: [
+        {
+          workoutSteps: [
+            paso("Trote suave de calentamiento", "warmup"),
+            { type: "RepeatGroupDTO", numberOfIterations: 3, workoutSteps: [paso("Progresivo suelto"), paso("Camina", "rest")] },
+            { type: "RepeatGroupDTO", numberOfIterations: 2, workoutSteps: [paso("Umbral por pulso"), paso("Trote de recuperacion", "recovery")] },
+            paso("Vuelta a la calma", "cooldown"),
+          ],
+        },
+      ],
+    };
+    // wktStepIndex del reloj: 0 calent · 1 progresivo · 2 camina · 3 repetir · 4 umbral · 5 recup · 6 repetir · 7 calma
+    const lap = (idx: number, tipo: string) => ({ intensityType: tipo, wktStepIndex: idx, duration: 60, distance: 200, averageSpeed: 3 });
+    const { falso } = cliente([
+      [/activity\/4$/, { cuerpo: { activityName: "Umbral", activityTypeDTO: { typeKey: "running" }, metadataDTO: { associatedWorkoutId: 77 }, summaryDTO: { duration: 2400 } } }],
+      [/exerciseSets/, { cuerpo: { exerciseSets: [] } }],
+      [/activity\/4\/splits/, { cuerpo: { lapDTOs: [lap(0, "WARMUP"), lap(1, "ACTIVE"), lap(2, "REST"), lap(4, "ACTIVE"), lap(5, "RECOVERY"), lap(7, "COOLDOWN"), { duration: 0, distance: 0 }] } }],
+      [/workout\/77/, { cuerpo: ENTRENO }],
+    ]);
+    const r = await leerActividad(falso, 4);
+    expect(r.vueltas.map((v) => v.paso)).toEqual([1, 3, 4, 6, 7, 8]);
+    expect(r.vueltas[3]!.etiqueta).toBe("Umbral por pulso");
+    const texto = formatearActividad(r.actividad, r.series, r.avisoSeries, r.vueltas, r.avisoVueltas, r.entreno);
+    expect(texto).toContain("6 vueltas"); // la de cero segundos no cuenta
+    expect(texto).toContain("Entreno seguido: «Umbral 2x6» (id 77)");
+    expect(texto).toMatch(/4 +6 trabajo .*«Umbral por pulso»/);
+  });
+
+  it("sin entreno asociado, avisa de que la numeración es la del reloj", async () => {
+    const { falso } = cliente([
+      [/activity\/5$/, { cuerpo: { activityName: "Rodaje", activityTypeDTO: { typeKey: "running" }, summaryDTO: { duration: 600 } } }],
+      [/activity\/5\/splits/, { cuerpo: { lapDTOs: [{ wktStepIndex: 0, duration: 600, distance: 2000, averageSpeed: 3.3 }] } }],
+    ]);
+    const r = await leerActividad(falso, 5);
+    const texto = formatearActividad(r.actividad, r.series, r.avisoSeries, r.vueltas, r.avisoVueltas, r.entreno);
+    expect(texto).toContain("No se pudo leer el entreno que se siguió");
+  });
+
   it("en bici la marcha va en km/h y nadando en /100 m", async () => {
     const { formatearVueltas } = await import("../src/garmin/actividades");
     const v = { numero: 1, intensidad: null, paso: null, segundos: 600, distanciaM: 5000, velocidad: 8.333, gap: null, fcMedia: 130, fcMax: 140, cadencia: 85, potencia: null, desnivelM: 10 };

@@ -343,8 +343,13 @@ export class GarminTools {
       if (!Number.isFinite(id) || id <= 0) {
         throw new EntrenoError("Falta 'activity_id': el id que devuelve garmin_activities.");
       }
-      const { actividad, series, avisoSeries, vueltas, avisoVueltas } = await leerActividad(this.cliente, id);
-      return formatearActividad(actividad, series, avisoSeries, vueltas, avisoVueltas);
+      const r = await leerActividad(this.cliente, id);
+      const texto = formatearActividad(r.actividad, r.series, r.avisoSeries, r.vueltas, r.avisoVueltas, r.entreno);
+      if (args.debug !== true) return texto;
+      return (
+        `${texto}\n\nClaves del detalle (solo nombres): ${r.claves.detalle.join(", ")}` +
+        `\nClaves de metadataDTO: ${r.claves.metadata.join(", ") || "—"}`
+      );
     });
   }
 

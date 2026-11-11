@@ -62,8 +62,14 @@ export interface Vuelta {
   numero: number;
   /** WARMUP, ACTIVE, INTERVAL, RECOVERY, REST, COOLDOWN… tal y como lo da Garmin. */
   intensidad: string | null;
-  /** Paso del entreno al que pertenece, contando desde 1. null sin entreno. */
+  /**
+   * Paso del entreno. Con el entreno leído, es su número en garmin_get_workout
+   * (contando los «repetir»). Sin él, el orden crudo del fichero del reloj
+   * contando desde 1, que NO coincide: ahí cada «repetir» va detrás de sus pasos.
+   */
   paso: number | null;
+  /** La etiqueta del paso en el entreno, si se pudo leer. */
+  etiqueta?: string | null;
   segundos: number | null;
   distanciaM: number | null;
   /** Velocidad media en m/s. */
@@ -187,6 +193,59 @@ export function normalizarSeries(bruto: unknown): SerieFuerza[] {
   return series;
 }
 
+interface PasoDelReloj {
+  /** Número del paso en garmin_get_workout (orden de lectura, con los «repetir»). */
+  orden: number;
+  etiqueta: string | null;
+}
+
+/**
+ * Los pasos de un entreno en el orden del fichero del reloj, que es el que usa
+ * `wktStepIndex` en cada vuelta. Garmin escribe primero los pasos de un bloque
+ * y DESPUÉS el «repetir» que los envuelve; garmin_get_workout los numera al
+ * revés (el «repetir» antes). Se recorren los dos órdenes a la vez para poder
+ * traducir uno al otro.
+ */
+export function pasosEnOrdenDelReloj(entreno: unknown): PasoDelReloj[] {
+  const e = entreno && typeof entreno === "object" ? (entreno as Record<string, unknown>) : {};
+  const segmentos = Array.isArray(e.workoutSegments) ? e.workoutSegments : [];
+  const raiz = segmentos.flatMap((seg) => {
+    const sg = (seg ?? {}) as Record<string, unknown>;
+    return Array.isArray(sg.workoutSteps) ? sg.workoutSteps : [];
+  });
+  const salida: PasoDelReloj[] = [];
+  let orden = 0;
+  const recorrer = (lista: unknown[]): void => {
+    for (const crudo of lista) {
+      const paso = (crudo ?? {}) as Record<string, unknown>;
+      orden += 1;
+      const propio = orden;
+      const hijos = paso.workoutSteps;
+      if (Array.isArray(hijos)) {
+        recorrer(hijos);
+        salida.push({ orden: propio, etiqueta: "repetir" });
+        continue;
+      }
+      salida.push({ orden: propio, etiqueta: texto(paso.description) || null });
+    }
+  };
+  recorrer(raiz);
+  return salida;
+}
+
+/** El entreno que se siguió en una actividad, mire donde mire Garmin. */
+export function entrenoAsociado(detalle: unknown): number | null {
+  if (!detalle || typeof detalle !== "object" || Array.isArray(detalle)) return null;
+  const d = detalle as Record<string, unknown>;
+  const meta = (d.metadataDTO ?? {}) as Record<string, unknown>;
+  const resumen = (d.summaryDTO ?? {}) as Record<string, unknown>;
+  for (const v of [meta.associatedWorkoutId, d.associatedWorkoutId, d.workoutId, resumen.workoutId]) {
+    const n = numero(v);
+    if (n !== null && n > 0) return n;
+  }
+  return null;
+}
+
 /** Las vueltas de `/activity-service/activity/{id}/splits` (lapDTOs). */
 export function normalizarVueltas(bruto: unknown): Vuelta[] {
   const raiz = bruto && typeof bruto === "object" && !Array.isArray(bruto) ? (bruto as Record<string, unknown>) : {};
@@ -196,13 +255,17 @@ export function normalizarVueltas(bruto: unknown): Vuelta[] {
     if (!crudo || typeof crudo !== "object") return;
     const v = crudo as Record<string, unknown>;
     const paso = numero(v.wktStepIndex);
+    const segundos = positivo(v.duration ?? v.elapsedDuration);
+    const distancia = positivo(v.distance);
+    // La vuelta de cero segundos que el reloj cierra al pulsar parar no es nada.
+    if ((segundos ?? 0) < 1 && (distancia ?? 0) < 5) return;
     vueltas.push({
       numero: vueltas.length + 1,
       intensidad: texto(v.intensityType).toUpperCase() || null,
       // El reloj numera los pasos desde 0; garmin_get_workout, desde 1.
       paso: paso === null || paso < 0 ? null : paso + 1,
-      segundos: positivo(v.duration ?? v.elapsedDuration),
-      distanciaM: positivo(v.distance),
+      segundos,
+      distanciaM: distancia,
       velocidad: positivo(v.averageSpeed ?? v.averageMovingSpeed),
       gap: positivo(v.avgGradeAdjustedSpeed),
       fcMedia: positivo(v.averageHR),
@@ -257,6 +320,10 @@ export async function leerActividad(
   avisoSeries: string | null;
   vueltas: Vuelta[];
   avisoVueltas: string | null;
+  /** El entreno que se siguió, si se pudo leer: es lo que da nombre a cada paso. */
+  entreno: { id: number; nombre: string } | null;
+  /** Nombres de las claves del detalle y de su metadataDTO, para depurar. */
+  claves: { detalle: string[]; metadata: string[] };
 }> {
   const detalle = await json(cliente, `/activity-service/activity/${id}`);
   const actividad = normalizarActividad({
@@ -288,7 +355,36 @@ export async function leerActividad(
   } catch (exc) {
     avisoVueltas = exc instanceof Error ? exc.message : String(exc);
   }
-  return { actividad, series, avisoSeries, vueltas, avisoVueltas };
+
+  // Con el entreno, cada vuelta lleva el número y la etiqueta de su paso tal
+  // y como los enseña garmin_get_workout. Sin él, el número crudo del reloj.
+  let entreno: { id: number; nombre: string } | null = null;
+  const idEntreno = entrenoAsociado(detalle);
+  if (idEntreno !== null && vueltas.some((v) => v.paso !== null)) {
+    try {
+      const bruto = await json(cliente, `/workout-service/workout/${idEntreno}`);
+      const pasos = pasosEnOrdenDelReloj(bruto);
+      if (pasos.length) {
+        entreno = {
+          id: idEntreno,
+          nombre: texto((bruto as Record<string, unknown> | null)?.workoutName) || "(sin nombre)",
+        };
+        vueltas = vueltas.map((v) => {
+          const p = v.paso === null ? undefined : pasos[v.paso - 1];
+          return p ? { ...v, paso: p.orden, etiqueta: p.etiqueta } : v;
+        });
+      }
+    } catch {
+      // Un entreno borrado después no impide ver las vueltas.
+    }
+  }
+  const objeto = (v: unknown): Record<string, unknown> =>
+    v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  const claves = {
+    detalle: Object.keys(objeto(detalle)).sort(),
+    metadata: Object.keys(objeto(objeto(detalle).metadataDTO)).sort(),
+  };
+  return { actividad, series, avisoSeries, vueltas, avisoVueltas, entreno, claves };
 }
 
 // ------------------------------------------------------------------ formato
@@ -356,7 +452,11 @@ function unidadMarcha(deporte: string): string {
   return "/km";
 }
 
-export function formatearVueltas(vueltas: Vuelta[], deporte: string): string[] {
+export function formatearVueltas(
+  vueltas: Vuelta[],
+  deporte: string,
+  entreno: { id: number; nombre: string } | null = null,
+): string[] {
   const conPaso = vueltas.some((v) => v.paso !== null);
   const conGap = vueltas.some((v) => v.gap !== null);
   const conPot = vueltas.some((v) => v.potencia !== null);
@@ -392,6 +492,7 @@ export function formatearVueltas(vueltas: Vuelta[], deporte: string): string[] {
         num(v.cadencia).padStart(4),
         conPot ? num(v.potencia).padStart(4) : "",
         (v.desnivelM === null ? "—" : `${Math.round(v.desnivelM)}`).padStart(4),
+        v.etiqueta ? ` «${v.etiqueta}»` : "",
       ]
         .filter((c) => c !== "")
         .join(" "),
@@ -400,10 +501,16 @@ export function formatearVueltas(vueltas: Vuelta[], deporte: string): string[] {
   if (vueltas.length > MAX_VUELTAS) {
     lineas.push(`… y ${vueltas.length - MAX_VUELTAS} vueltas más que no se enseñan.`);
   }
-  if (conPaso) {
+  if (conPaso && entreno) {
     lineas.push(
-      "«paso» es el número de paso del entreno, como lo enumera garmin_get_workout: así se " +
-        "compara cada serie con lo prescrito.",
+      `Entreno seguido: «${entreno.nombre}» (id ${entreno.id}). «paso» es su número en ` +
+        "garmin_get_workout: así se compara cada vuelta con lo prescrito.",
+    );
+  } else if (conPaso) {
+    lineas.push(
+      "No se pudo leer el entreno que se siguió: «paso» es el orden en el fichero del reloj, " +
+        "donde cada «repetir» va DETRÁS de sus pasos. No coincide con la numeración de " +
+        "garmin_get_workout.",
     );
   }
   return lineas;
@@ -415,6 +522,7 @@ export function formatearActividad(
   avisoSeries: string | null,
   vueltas: Vuelta[] = [],
   avisoVueltas: string | null = null,
+  entreno: { id: number; nombre: string } | null = null,
 ): string {
   if (!actividad) return "Garmin no devolvió esa actividad.";
   const lineas = [
@@ -475,7 +583,7 @@ export function formatearActividad(
         "garmin_create_workout para que el reloj enseñe el nombre del ejercicio.",
     );
   } else if (vueltas.length) {
-    lineas.push("", ...formatearVueltas(vueltas, actividad.deporte));
+    lineas.push("", ...formatearVueltas(vueltas, actividad.deporte, entreno));
   } else if (avisoSeries && /strength/i.test(actividad.deporte)) {
     lineas.push("", `No se pudieron leer las series: ${avisoSeries}`);
   } else if (avisoVueltas) {
