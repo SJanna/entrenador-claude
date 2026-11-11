@@ -111,7 +111,10 @@ export class HistoricoTools {
       const carga = serieCarga(todas, inicio, hoy);
       const porFecha = new Map(carga.dias.map((d) => [d.fecha, d]));
       const lineas = [lineaCobertura(cobertura), ""];
-      lineas.push("semana (lun) | ses | horas | km correr | km a pie | desnivel | carga | CTL | ATL | TSB");
+      lineas.push(
+        "semana (lun) | ses | horas | km correr | km a pie | desnivel | carga | CTL | ATL | TSB | suave/medio/duro (zonas)",
+      );
+      let zonasIncompletas = false;
       for (const s of semanas(todas, desdeSemanas, hoy)) {
         const fin = addDays(s.lunes, 6) > hoy ? hoy : addDays(s.lunes, 6);
         const c = porFecha.get(fin);
@@ -127,11 +130,21 @@ export class HistoricoTools {
             c ? c.ctl.toFixed(0).padStart(3) : "  —",
             c ? c.atl.toFixed(0).padStart(3) : "  —",
             c ? c.tsb.toFixed(0).padStart(3) : "  —",
+            repartoSemana(s),
           ].join(" | "),
         );
+        if (s.conZonas < s.conFc) zonasIncompletas = true;
       }
       const hoyC = porFecha.get(hoy);
       lineas.push("", "* semana en curso.");
+      lineas.push(
+        "Reparto = tiempo en zonas de FC del reloj: suave Z1-Z2 · medio Z3 · duro Z4-Z5. El objetivo " +
+          "«~80 % fácil» se mira aquí; la Z3 es la que se cuela en los rodajes que no lo son." +
+          (zonasIncompletas
+            ? " «(n/m)» = actividades con zonas ya leídas de las que tienen pulso: el cron las rellena " +
+              "poco a poco, y mientras tanto el reparto de esa semana es provisional."
+            : ""),
+      );
       if (hoyC) {
         lineas.push(
           `Hoy: CTL ${hoyC.ctl.toFixed(0)} · ATL ${hoyC.atl.toFixed(0)} · TSB ${hoyC.tsb.toFixed(0)} ` +
@@ -307,7 +320,7 @@ export class HistoricoTools {
         "",
         `${total} actividades · ${km.toFixed(1)} km · ${horas.toFixed(1)} h` +
           (total > limite ? ` (se enseñan las ${limite} más recientes)` : ""),
-        "fecha      | deporte | nombre | tiempo | km | ritmo | FC | desnivel | carga | desacople | id",
+        "fecha      | deporte | nombre | tiempo | km | ritmo | FC | desnivel | carga | desacople | clima | id",
       ];
       for (const a of lista.slice(-limite).reverse()) {
         lineas.push(
@@ -326,6 +339,7 @@ export class HistoricoTools {
               : a.detalle_estado === "pendiente"
                 ? "pendiente"
                 : "—",
+            climaCorto(a),
             a.id,
           ].join(" | "),
         );
@@ -338,4 +352,23 @@ export class HistoricoTools {
       return lineas.join("\n");
     });
   }
+}
+
+/** «72/18/10 %», con «(n/m)» si faltan actividades por leer. */
+export function repartoSemana(s: { zonas: number[]; conFc: number; conZonas: number }): string {
+  const total = s.zonas.reduce((a, b) => a + b, 0);
+  if (!s.conZonas || total <= 0) return s.conFc ? "pendiente" : "—";
+  const pct = (x: number) => Math.round((x / total) * 100);
+  const txt = `${pct(s.zonas[0]! + s.zonas[1]!)}/${pct(s.zonas[2]!)}/${pct(s.zonas[3]! + s.zonas[4]!)} %`;
+  return s.conZonas < s.conFc ? `${txt} (${s.conZonas}/${s.conFc})` : txt;
+}
+
+/** «29 °C · 78 %» (temperatura y humedad del clima), o «—». */
+export function climaCorto(a: { temp_clima?: number | null; humedad_clima?: number | null; inicio?: string | null }): string {
+  const partes = [
+    a.temp_clima !== null && a.temp_clima !== undefined ? `${Math.round(a.temp_clima)} °C` : "",
+    a.humedad_clima !== null && a.humedad_clima !== undefined ? `${Math.round(a.humedad_clima)} %` : "",
+  ].filter(Boolean);
+  const hora = a.inicio && a.inicio.length >= 16 ? a.inicio.slice(11, 16) : "";
+  return partes.length ? `${partes.join(" · ")}${hora ? ` a las ${hora}` : ""}` : "—";
 }

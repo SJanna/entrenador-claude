@@ -295,7 +295,7 @@ async function sincronizarGarmin(env: Env, cron: string): Promise<void> {
     const r = await sincronizarHistorico(cliente, store, hoy, { presupuesto });
     console.log(
       `cron ${cron}: histórico Garmin · ${r.llamadas} llamadas · ${r.actividadesNuevas} actividades nuevas · ` +
-        `${r.detalles} series · ${r.climas} climas · ${r.dias} días` + (r.parado ? ` · parada: ${r.parado}` : ""),
+        `${r.detalles} series · ${r.climas} climas · ${r.zonas} zonas · ${r.dias} días` + (r.parado ? ` · parada: ${r.parado}` : ""),
     );
   } catch (exc) {
     console.error("cron del histórico de Garmin: no se pudo sincronizar", exc);

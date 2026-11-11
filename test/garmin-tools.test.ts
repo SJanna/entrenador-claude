@@ -365,3 +365,45 @@ describe("quitar una fecha del calendario", () => {
     expect(llamadas).toHaveLength(0);
   });
 });
+
+describe("cambiar un entreno sin perder sus fechas", () => {
+  const VIEJO = {
+    workoutId: 1704873617,
+    ownerId: 99,
+    workoutName: "Caminata 20 min (barrio)",
+    workoutSegments: [{ workoutSteps: [{ type: "ExecutableStepDTO" }] }],
+  };
+
+  it("hace PUT sobre el mismo id, conserva el dueño y cuenta los pasos de antes y ahora", async () => {
+    const { llamadas, tools } = cliente([[/workout\/1704873617$/, { cuerpo: VIEJO }]]);
+    const texto = await tools.actualizarEntreno({
+      workout_id: 1704873617,
+      name: "Caminata 25 min (barrio)",
+      sport: "Walk",
+      steps: [
+        { label: "Caminar", duration: "20m", intensity: "active" },
+        { label: "Estirar", duration: "5m", intensity: "cooldown" },
+      ],
+    });
+    const put = llamadas.find((l) => l.metodo === "PUT");
+    expect(put?.ruta).toBe("/workout-service/workout/1704873617");
+    expect(put?.cuerpo).toMatchObject({ workoutId: 1704873617, ownerId: 99, workoutName: "Caminata 25 min (barrio)" });
+    expect(llamadas.some((l) => l.metodo === "DELETE" || l.metodo === "POST")).toBe(false);
+    expect(texto).toContain("«Caminata 20 min (barrio)» → «Caminata 25 min (barrio)»");
+    expect(texto).toContain("Antes: 1 pasos escritos · ahora: 2 pasos escritos");
+    expect(texto).toContain("todas sus fechas");
+  });
+
+  it("un entreno mal escrito no toca el que hay", async () => {
+    const { llamadas, tools } = cliente([[/workout\/5$/, { cuerpo: VIEJO }]]);
+    const texto = await tools.actualizarEntreno({ workout_id: 5, name: "X", sport: "Run", steps: [] });
+    expect(texto).toMatch(/^Error/);
+    expect(llamadas.every((l) => l.metodo === "GET")).toBe(true);
+  });
+
+  it("sin id no sale a Garmin", async () => {
+    const { llamadas, tools } = cliente([]);
+    expect(await tools.actualizarEntreno({ name: "X", sport: "Run", steps: [] })).toMatch(/^Error: Falta 'workout_id'/);
+    expect(llamadas).toHaveLength(0);
+  });
+});

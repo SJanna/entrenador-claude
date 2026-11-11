@@ -20,7 +20,7 @@
  */
 
 import { addDays } from "../dates";
-import { leerClima, listarActividades } from "../garmin/actividades";
+import { leerTiempo, leerZonas, listarActividades } from "../garmin/actividades";
 import { leerDia } from "../garmin/bienestar";
 import type { GarminCliente } from "../garmin/cliente";
 import { GarminError } from "../garmin/cliente";
@@ -40,6 +40,10 @@ const PAGINA = 50;
 const LLAMADAS_POR_DIA = 6;
 /** Climas por pasada: una llamada por actividad, así que pocos y de lo nuevo a lo viejo. */
 const CLIMA_POR_PASADA = 3;
+/** Zonas de FC por pasada: una llamada por actividad, solo en la ventana reciente. */
+const ZONAS_POR_PASADA = 4;
+/** Hasta dónde se rellenan las zonas: el reparto que se mira es el de las últimas semanas. */
+export const DIAS_ZONAS = 120;
 /** Bienestar de hoy/ayer: se relee si tiene más de esto. */
 const REFRESCO_MS = 3 * 3600_000;
 /**
@@ -54,6 +58,7 @@ export interface InformeSync {
   actividadesNuevas: number;
   detalles: number;
   climas: number;
+  zonas: number;
   dias: number;
   pesos: number;
   parado: string | null;
@@ -83,7 +88,7 @@ export async function sincronizarHistorico(
   const presupuesto = Math.max(6, opciones.presupuesto ?? PRESUPUESTO_POR_DEFECTO);
   const ahora = opciones.ahora ?? Date.now;
   const informe: InformeSync = {
-    llamadas: 0, actividadesNuevas: 0, detalles: 0, climas: 0, dias: 0, pesos: 0, parado: null, errores: [],
+    llamadas: 0, actividadesNuevas: 0, detalles: 0, climas: 0, zonas: 0, dias: 0, pesos: 0, parado: null, errores: [],
   };
   const cliente = contado(clienteReal, presupuesto, informe);
   const queda = () => presupuesto - informe.llamadas;
@@ -216,7 +221,7 @@ export async function sincronizarHistorico(
     if (queda() <= reservaBienestar) break;
     const seguir = await paso(`clima ${id}`, async () => {
       try {
-        await store.guardarClima(id, await leerClima(cliente, id));
+        await store.guardarClima(id, await leerTiempo(cliente, id));
         informe.climas++;
       } catch (exc) {
         if (
@@ -226,6 +231,31 @@ export async function sincronizarHistorico(
           throw exc;
         }
         await store.falloClima(id);
+        throw exc;
+      }
+    });
+    if (!seguir) return cerrar();
+  }
+
+  // 3c. Zonas de FC de lo reciente (reparto suave/medio/duro de cada semana).
+  const zonas = await store.pendientesDeZonas(
+    Math.min(ZONAS_POR_PASADA, Math.max(0, queda() - reservaBienestar)),
+    addDays(hoy, -DIAS_ZONAS),
+  );
+  for (const { id } of zonas) {
+    if (queda() <= reservaBienestar) break;
+    const seguir = await paso(`zonas ${id}`, async () => {
+      try {
+        await store.guardarZonas(id, await leerZonas(cliente, id));
+        informe.zonas++;
+      } catch (exc) {
+        if (
+          exc instanceof SinPresupuesto ||
+          (exc instanceof GarminError && ["limitado", "no_enlazada", "reenlazar"].includes(exc.codigo))
+        ) {
+          throw exc;
+        }
+        await store.falloZonas(id);
         throw exc;
       }
     });

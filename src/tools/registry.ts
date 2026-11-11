@@ -117,8 +117,9 @@ export function serverInstructions(m: Modulos): string {
       "pasos llegan al reloj tal cual. Los rangos van como lista [min, max]. Después de " +
       "escribir una sesión que importe, léela con garmin_get_workout y compara el NÚMERO DE " +
       "PASOS, no solo la duración. Para quitar UNA fecha de un entreno reutilizado, " +
-      "garmin_unschedule_workout con su id de programación; garmin_delete_workout borra el " +
-      "entreno con todas sus fechas." +
+      "garmin_unschedule_workout con su id de programación; para CAMBIAR un entreno sin " +
+      "perder sus fechas, garmin_update_workout; garmin_delete_workout borra el entreno con " +
+      "todas sus fechas." +
       (m.intervals
         ? " create_workout (intervals) solo cuando haga falta lo que Garmin no tiene: rampas " +
           "dentro de un paso o la carga proyectada en intervals. Lo de un calendario no se ve " +
@@ -1215,7 +1216,9 @@ export function buildTools(
       description:
         "Volumen y carga por semana (lunes a domingo) desde el histórico de Garmin guardado en " +
         "la app: sesiones, horas, km corriendo y a pie, desnivel, carga, y CTL/ATL/TSB (medias de " +
-        "42 y 7 días sobre la carga de Garmin). Empieza diciendo cuánto histórico hay detrás." +
+        "42 y 7 días sobre la carga de Garmin) y el REPARTO de intensidad de cada semana por " +
+        "tiempo en zonas de FC (suave Z1-Z2 / medio Z3 / duro Z4-Z5): es donde se comprueba el " +
+        "«~80 % fácil». Empieza diciendo cuánto histórico hay detrás." +
         (conI ? " Sustituye a get_weekly_summary de intervals." : ""),
       inputSchema: {
         type: "object",
@@ -1261,7 +1264,8 @@ export function buildTools(
       description:
         "Filtra el histórico sin traerse el periodo entero: deporte ('correr' para todo lo de " +
         "carrera, o un tipo de Garmin como 'walking'), fechas, distancia y duración mínimas. Da " +
-        "totales y una tabla con ritmo, FC, desnivel, carga y DESACOPLE aeróbico de cada una.",
+        "totales y una tabla con ritmo, FC, desnivel, carga, DESACOPLE aeróbico y, en carrera al " +
+        "aire libre, el CLIMA (temperatura y humedad, con la hora): un pulso alto no se lee sin él.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1403,7 +1407,9 @@ export function buildTools(
         "carrera, bici, natación o caminata, sus VUELTAS una a una: tipo (calentamiento, " +
         "trabajo, recuperación…), número de paso del entreno, tiempo, distancia, ritmo, GAP, " +
         "FC media y máxima, cadencia y desnivel. Con ellas se evalúa cada serie contra lo " +
-        "prescrito, no la media de la sesión. La columna «enum " +
+        "prescrito, no la media de la sesión. Trae también el CLIMA (temperatura, sensación y " +
+        "humedad, con la hora) y el TIEMPO EN CADA ZONA de FC con su reparto suave/medio/duro. " +
+        "La columna «enum " +
         "de Garmin» es lo que hay que pasar como 'category' y 'exercise' al prescribir para " +
         "que el reloj enseñe el nombre del ejercicio.",
       inputSchema: {
@@ -1574,7 +1580,8 @@ export function buildTools(
       description:
         "Borra un entreno de la biblioteca de Garmin y, con él, TODAS sus fechas en el " +
         "calendario. Para quitar una sola fecha de un entreno reutilizado, " +
-        "garmin_unschedule_workout. No toca actividades ya hechas" +
+        "garmin_unschedule_workout; para cambiarlo sin perder sus fechas, " +
+        "garmin_update_workout. No toca actividades ya hechas" +
         (conI ? " ni nada de intervals.icu" : "") +
         ". " +
         "Sin confirm=true no borra: dice de qué entreno se trata para que se pueda comprobar " +
@@ -1592,6 +1599,35 @@ export function buildTools(
       },
       annotations: { readOnlyHint: false, destructiveHint: true, title: "Borrar entreno de Garmin" },
       run: (args) => garmin.borrarEntreno(args),
+    },
+    {
+      name: "garmin_update_workout",
+      title: "Cambiar un entreno de Garmin",
+      description:
+        "Cambia un entreno que YA existe en Garmin sin borrarlo: conserva su id y TODAS sus " +
+        "fechas del calendario. Es la forma de corregir un entreno reutilizado (la caminata de " +
+        "cada día, el trote de 20) sin perder ni duplicar sus citas. Recibe el entreno completo, " +
+        "como garmin_create_workout (name, sport, steps, description): sustituye los pasos " +
+        "enteros, no se edita uno suelto. Si el cambio es solo para UN día, no sirve: crea otro " +
+        "entreno para ese día y quita la cita con garmin_unschedule_workout. Después, " +
+        "garmin_get_workout y compara el número de pasos.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          workout_id: { type: "number", description: "Id del entreno que se cambia." },
+          name: { type: "string", description: "Nombre (puede ser el mismo)." },
+          sport: { type: "string", description: "Run, Ride, Swim, Walk, WeightTraining, Other…" },
+          steps: {
+            type: "array",
+            description: "Todos los pasos, en el mismo formato que garmin_create_workout.",
+            items: { type: "object" },
+          },
+          description: { type: "string", description: "Nota del entreno, opcional." },
+        },
+        required: ["workout_id", "name", "sport", "steps"],
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, title: "Cambiar entreno de Garmin" },
+      run: (args) => garmin.actualizarEntreno(args),
     },
     {
       name: "garmin_unschedule_workout",

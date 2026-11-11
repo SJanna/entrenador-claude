@@ -166,7 +166,7 @@ async function main() {
   // Un {status:"ok"} fijo respondia igual con la base caida: §3 dice que si las
   // herramientas no estan, no se programa, y eso hay que poder comprobarlo.
   check("healthz dice en que version va el contrato", /^v\d+$/.test(String(salud.contrato)));
-  check("healthz dice la ultima migracion aplicada", String(salud.esquema).startsWith("0011"), JSON.stringify(salud));
+  check("healthz dice la ultima migracion aplicada", String(salud.esquema).startsWith("0012"), JSON.stringify(salud));
   check("healthz dice que modulos hay", typeof salud.modulos?.intervals === "boolean", JSON.stringify(salud));
   const mal = await fetch(`${BASE}/ruta-incorrecta/mcp`, {
     method: "POST",
@@ -231,7 +231,7 @@ async function main() {
   check("notificación initialized → 202", notif.status === 202);
   const lista = await rpc("tools/list");
   const nombres = (lista.body?.result?.tools || []).map((t) => t.name);
-  check("tools/list expone 43 herramientas (briefing, diario, histórico de Garmin y quitar una fecha)", nombres.length === 43 && nombres.includes("garmin_unschedule_workout"), nombres.join(","));
+  check("tools/list expone 44 herramientas (briefing, diario, histórico de Garmin, quitar una fecha y cambiar un entreno)", nombres.length === 44 && nombres.includes("garmin_unschedule_workout") && nombres.includes("garmin_update_workout"), nombres.join(","));
   for (const requerido of ["get_contract", "contract_commit", "get_log", "get_wellness", "create_workout", "get_athlete_settings", "get_streaks", "get_activity_streams", "get_records", "search_activities", "set_wellness", "get_material", "set_material"]) {
     check(`herramienta presente: ${requerido}`, nombres.includes(requerido));
   }

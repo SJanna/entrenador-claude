@@ -119,7 +119,7 @@ describe("histórico con GAP y clima (migración 0011)", () => {
   });
 
   it("sin la migración 0011 el histórico sigue guardando, sin GAP ni clima", async () => {
-    const db = d1EnMemoria({ salta: ["0011"] });
+    const db = d1EnMemoria({ salta: ["0011", "0012"] });
     const store = new HistoricoStore(db);
     expect(await store.conGapYClima()).toBe(false);
     await store.guardarActividades([normalizarActividad(bruta(1, "2026-12-08", "running", { avgGradeAdjustedSpeed: 2.8 }))], () => false);

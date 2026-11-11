@@ -30,6 +30,8 @@ export interface ActividadH {
   mejores?: Record<string, number> | null;
   fc_max_serie?: number | null;
   fc_max?: number | null;
+  /** Segundos en Z1..Z5 de FC del reloj (migración 0012), si ya se leyeron. */
+  zonas?: number[] | null;
 }
 
 /** Series de una actividad, alineadas por índice. */
@@ -113,6 +115,11 @@ export interface SemanaH {
   kmAPie: number;
   desnivel: number;
   porDeporte: Record<string, { n: number; segundos: number }>;
+  /** Segundos en Z1..Z5 sumados de las actividades que ya tienen zonas. */
+  zonas: number[];
+  /** Cuántas actividades con pulso tiene la semana, y cuántas ya con zonas. */
+  conFc: number;
+  conZonas: number;
 }
 
 export function semanas(actividades: ActividadH[], desde: string, hasta: string): SemanaH[] {
@@ -120,7 +127,7 @@ export function semanas(actividades: ActividadH[], desde: string, hasta: string)
   for (let l = mondayOf(desde); l <= hasta; l = addDays(l, 7)) {
     mapa.set(l, {
       lunes: l, sesiones: 0, segundos: 0, carga: 0, kmCarrera: 0, kmAPie: 0, desnivel: 0,
-      porDeporte: {},
+      porDeporte: {}, zonas: [0, 0, 0, 0, 0], conFc: 0, conZonas: 0,
     });
   }
   for (const a of actividades) {
@@ -137,6 +144,11 @@ export function semanas(actividades: ActividadH[], desde: string, hasta: string)
     const p = (s.porDeporte[a.deporte] ??= { n: 0, segundos: 0 });
     p.n++;
     p.segundos += a.segundos ?? 0;
+    if (a.fc_media) s.conFc++;
+    if (Array.isArray(a.zonas) && a.zonas.length === 5) {
+      s.conZonas++;
+      a.zonas.forEach((seg, i) => (s.zonas[i]! += seg || 0));
+    }
   }
   return [...mapa.values()];
 }
