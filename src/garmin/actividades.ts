@@ -52,6 +52,31 @@ export interface SerieFuerza {
   segundos: number | null;
 }
 
+/**
+ * Una vuelta (lap) de la actividad. Con un entreno cargado en el reloj, cada
+ * paso del entreno es al menos una vuelta: calentamiento, cada serie, cada
+ * recuperación, la vuelta a la calma. Es lo que hace falta para saber si una
+ * serie se cumplió, no la media de la sesión entera.
+ */
+export interface Vuelta {
+  numero: number;
+  /** WARMUP, ACTIVE, INTERVAL, RECOVERY, REST, COOLDOWN… tal y como lo da Garmin. */
+  intensidad: string | null;
+  /** Paso del entreno al que pertenece, contando desde 1. null sin entreno. */
+  paso: number | null;
+  segundos: number | null;
+  distanciaM: number | null;
+  /** Velocidad media en m/s. */
+  velocidad: number | null;
+  /** Ritmo ajustado por pendiente (GAP) en m/s, si Garmin lo da. */
+  gap: number | null;
+  fcMedia: number | null;
+  fcMax: number | null;
+  cadencia: number | null;
+  potencia: number | null;
+  desnivelM: number | null;
+}
+
 function numero(valor: unknown): number | null {
   if (valor === null || valor === undefined || typeof valor === "boolean") return null;
   const n = typeof valor === "number" ? valor : Number(valor);
@@ -162,6 +187,34 @@ export function normalizarSeries(bruto: unknown): SerieFuerza[] {
   return series;
 }
 
+/** Las vueltas de `/activity-service/activity/{id}/splits` (lapDTOs). */
+export function normalizarVueltas(bruto: unknown): Vuelta[] {
+  const raiz = bruto && typeof bruto === "object" && !Array.isArray(bruto) ? (bruto as Record<string, unknown>) : {};
+  const lista = Array.isArray(raiz.lapDTOs) ? raiz.lapDTOs : Array.isArray(bruto) ? bruto : [];
+  const vueltas: Vuelta[] = [];
+  lista.forEach((crudo) => {
+    if (!crudo || typeof crudo !== "object") return;
+    const v = crudo as Record<string, unknown>;
+    const paso = numero(v.wktStepIndex);
+    vueltas.push({
+      numero: vueltas.length + 1,
+      intensidad: texto(v.intensityType).toUpperCase() || null,
+      // El reloj numera los pasos desde 0; garmin_get_workout, desde 1.
+      paso: paso === null || paso < 0 ? null : paso + 1,
+      segundos: positivo(v.duration ?? v.elapsedDuration),
+      distanciaM: positivo(v.distance),
+      velocidad: positivo(v.averageSpeed ?? v.averageMovingSpeed),
+      gap: positivo(v.avgGradeAdjustedSpeed),
+      fcMedia: positivo(v.averageHR),
+      fcMax: positivo(v.maxHR),
+      cadencia: positivo(v.averageRunCadence ?? v.averageBikeCadence ?? v.averageSwimCadence),
+      potencia: positivo(v.averagePower),
+      desnivelM: numero(v.elevationGain),
+    });
+  });
+  return vueltas;
+}
+
 async function json(cliente: GarminCliente, ruta: string): Promise<unknown> {
   const respuesta = await cliente.api(ruta);
   if (respuesta.status === 204 || respuesta.status === 404) {
@@ -198,7 +251,13 @@ export async function listarActividades(
 export async function leerActividad(
   cliente: GarminCliente,
   id: number,
-): Promise<{ actividad: Actividad | null; series: SerieFuerza[]; avisoSeries: string | null }> {
+): Promise<{
+  actividad: Actividad | null;
+  series: SerieFuerza[];
+  avisoSeries: string | null;
+  vueltas: Vuelta[];
+  avisoVueltas: string | null;
+}> {
   const detalle = await json(cliente, `/activity-service/activity/${id}`);
   const actividad = normalizarActividad({
     activityId: id,
@@ -222,7 +281,14 @@ export async function leerActividad(
   } catch (exc) {
     avisoSeries = exc instanceof Error ? exc.message : String(exc);
   }
-  return { actividad, series, avisoSeries };
+  let vueltas: Vuelta[] = [];
+  let avisoVueltas: string | null = null;
+  try {
+    vueltas = normalizarVueltas(await json(cliente, `/activity-service/activity/${id}/splits`));
+  } catch (exc) {
+    avisoVueltas = exc instanceof Error ? exc.message : String(exc);
+  }
+  return { actividad, series, avisoSeries, vueltas, avisoVueltas };
 }
 
 // ------------------------------------------------------------------ formato
@@ -261,10 +327,94 @@ export function formatearActividades(actividades: Actividad[]): string {
   ].join("\n");
 }
 
+const INTENSIDAD: Record<string, string> = {
+  WARMUP: "calentam.",
+  ACTIVE: "trabajo",
+  INTERVAL: "trabajo",
+  RECOVERY: "recuper.",
+  REST: "descanso",
+  COOLDOWN: "v. calma",
+};
+
+export const MAX_VUELTAS = 200;
+
+/** Ritmo o velocidad, según el deporte: min/km a pie, km/h en bici, /100 m nadando. */
+function marcha(mps: number | null, deporte: string): string {
+  if (mps === null) return "—";
+  if (/swim/i.test(deporte)) {
+    const s = Math.round(100 / mps);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+  if (/cycl|bik|ride/i.test(deporte)) return (mps * 3.6).toFixed(1);
+  const s = Math.round(1000 / mps);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function unidadMarcha(deporte: string): string {
+  if (/swim/i.test(deporte)) return "/100m";
+  if (/cycl|bik|ride/i.test(deporte)) return "km/h";
+  return "/km";
+}
+
+export function formatearVueltas(vueltas: Vuelta[], deporte: string): string[] {
+  const conPaso = vueltas.some((v) => v.paso !== null);
+  const conGap = vueltas.some((v) => v.gap !== null);
+  const conPot = vueltas.some((v) => v.potencia !== null);
+  const u = unidadMarcha(deporte);
+  const cab = [
+    "  #",
+    conPaso ? "paso" : "",
+    "tipo     ",
+    "  tiempo",
+    "dist km",
+    `${u}`.padStart(6),
+    conGap ? "   GAP" : "",
+    "FCmed/máx",
+    " cad",
+    conPot ? "   W" : "",
+    "  D+",
+  ].filter(Boolean);
+  const mostradas = vueltas.slice(0, MAX_VUELTAS);
+  const lineas = [
+    `${vueltas.length} vuelta${vueltas.length === 1 ? "" : "s"}` +
+      (conPaso ? " (con un entreno cargado, cada paso es al menos una vuelta):" : ":"),
+    cab.join(" "),
+    ...mostradas.map((v) =>
+      [
+        String(v.numero).padStart(3),
+        conPaso ? String(v.paso ?? "—").padStart(4) : "",
+        (v.intensidad ? INTENSIDAD[v.intensidad] ?? v.intensidad.toLowerCase() : "—").padEnd(9).slice(0, 9),
+        duracion(v.segundos).padStart(8),
+        (v.distanciaM === null ? "—" : (v.distanciaM / 1000).toFixed(2)).padStart(7),
+        marcha(v.velocidad, deporte).padStart(6),
+        conGap ? marcha(v.gap, deporte).padStart(6) : "",
+        `${num(v.fcMedia)}/${num(v.fcMax)}`.padStart(9),
+        num(v.cadencia).padStart(4),
+        conPot ? num(v.potencia).padStart(4) : "",
+        (v.desnivelM === null ? "—" : `${Math.round(v.desnivelM)}`).padStart(4),
+      ]
+        .filter((c) => c !== "")
+        .join(" "),
+    ),
+  ];
+  if (vueltas.length > MAX_VUELTAS) {
+    lineas.push(`… y ${vueltas.length - MAX_VUELTAS} vueltas más que no se enseñan.`);
+  }
+  if (conPaso) {
+    lineas.push(
+      "«paso» es el número de paso del entreno, como lo enumera garmin_get_workout: así se " +
+        "compara cada serie con lo prescrito.",
+    );
+  }
+  return lineas;
+}
+
 export function formatearActividad(
   actividad: Actividad | null,
   series: SerieFuerza[],
   avisoSeries: string | null,
+  vueltas: Vuelta[] = [],
+  avisoVueltas: string | null = null,
 ): string {
   if (!actividad) return "Garmin no devolvió esa actividad.";
   const lineas = [
@@ -324,10 +474,16 @@ export function formatearActividad(
       "El «enum de Garmin» es lo que hay que pasar como 'category' y 'exercise' en " +
         "garmin_create_workout para que el reloj enseñe el nombre del ejercicio.",
     );
+  } else if (vueltas.length) {
+    lineas.push("", ...formatearVueltas(vueltas, actividad.deporte));
+  } else if (avisoSeries && /strength/i.test(actividad.deporte)) {
+    lineas.push("", `No se pudieron leer las series: ${avisoSeries}`);
+  } else if (avisoVueltas) {
+    lineas.push("", `No se pudieron leer las vueltas: ${avisoVueltas}`);
   } else if (avisoSeries) {
     lineas.push("", `No se pudieron leer las series: ${avisoSeries}`);
   } else {
-    lineas.push("", "Esta actividad no tiene series de fuerza registradas.");
+    lineas.push("", "Esta actividad no tiene series de fuerza ni vueltas registradas.");
   }
   return lineas.join("\n");
 }

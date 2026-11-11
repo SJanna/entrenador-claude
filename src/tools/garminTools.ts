@@ -343,8 +343,8 @@ export class GarminTools {
       if (!Number.isFinite(id) || id <= 0) {
         throw new EntrenoError("Falta 'activity_id': el id que devuelve garmin_activities.");
       }
-      const { actividad, series, avisoSeries } = await leerActividad(this.cliente, id);
-      return formatearActividad(actividad, series, avisoSeries);
+      const { actividad, series, avisoSeries, vueltas, avisoVueltas } = await leerActividad(this.cliente, id);
+      return formatearActividad(actividad, series, avisoSeries, vueltas, avisoVueltas);
     });
   }
 

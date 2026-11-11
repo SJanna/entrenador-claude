@@ -126,7 +126,42 @@ describe("la actividad completa", () => {
       [/exerciseSets/, { cuerpo: { exerciseSets: [] } }],
     ]);
     const { actividad, series, avisoSeries } = await leerActividad(falso, 1);
-    expect(formatearActividad(actividad, series, avisoSeries)).toContain("no tiene series");
+    expect(formatearActividad(actividad, series, avisoSeries)).toContain("no tiene series de fuerza ni vueltas");
+  });
+
+  it("un rodaje con entreno enseña sus vueltas, paso a paso", async () => {
+    const { falso } = cliente([
+      [/activity\/3$/, { cuerpo: { activityName: "Umbral 2x6", activityTypeDTO: { typeKey: "running" }, summaryDTO: { duration: 2400, distance: 7000 } } }],
+      [/exerciseSets/, { cuerpo: { exerciseSets: [] } }],
+      [
+        /activity\/3\/splits/,
+        {
+          cuerpo: {
+            lapDTOs: [
+              { lapIndex: 1, intensityType: "WARMUP", wktStepIndex: 0, duration: 900, distance: 2400, averageSpeed: 2.667, averageHR: 140, maxHR: 152, averageRunCadence: 158, elevationGain: 3 },
+              { lapIndex: 2, intensityType: "ACTIVE", wktStepIndex: 1, duration: 360, distance: 1240, averageSpeed: 3.444, avgGradeAdjustedSpeed: 3.5, averageHR: 181, maxHR: 186, averageRunCadence: 170, elevationGain: 1 },
+              { lapIndex: 3, intensityType: "RECOVERY", wktStepIndex: 2, duration: 120, distance: 300, averageSpeed: 2.5, averageHR: 160, maxHR: 178, averageRunCadence: 150, elevationGain: 0 },
+            ],
+          },
+        },
+      ],
+    ]);
+    const r = await leerActividad(falso, 3);
+    expect(r.vueltas).toHaveLength(3);
+    expect(r.vueltas[1]).toMatchObject({ numero: 2, paso: 2, intensidad: "ACTIVE", fcMedia: 181 });
+    const texto = formatearActividad(r.actividad, r.series, r.avisoSeries, r.vueltas, r.avisoVueltas);
+    expect(texto).toContain("3 vueltas");
+    expect(texto).toMatch(/2 +2 trabajo +6:00 +1\.24 +4:50 +4:46 +181\/186 +170/);
+    expect(texto).toMatch(/calentam\./);
+    expect(texto).toMatch(/recuper\./);
+    expect(texto).not.toContain("no tiene series");
+  });
+
+  it("en bici la marcha va en km/h y nadando en /100 m", async () => {
+    const { formatearVueltas } = await import("../src/garmin/actividades");
+    const v = { numero: 1, intensidad: null, paso: null, segundos: 600, distanciaM: 5000, velocidad: 8.333, gap: null, fcMedia: 130, fcMax: 140, cadencia: 85, potencia: null, desnivelM: 10 };
+    expect(formatearVueltas([v], "road_biking").join("\n")).toMatch(/km\/h[\s\S]*30\.0/);
+    expect(formatearVueltas([{ ...v, velocidad: 0.8333 }], "lap_swimming").join("\n")).toMatch(/\/100m[\s\S]*2:00/);
   });
 
   it("si fallan las series, la actividad se enseña igual", async () => {
