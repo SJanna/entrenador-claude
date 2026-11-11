@@ -3,7 +3,7 @@
  * reconstruir entera desde Garmin, así que nada aquí es fuente de verdad.
  */
 
-import type { Actividad } from "../garmin/actividades";
+import type { Actividad, Tiempo, ZonaFc } from "../garmin/actividades";
 import type { DiaBienestar } from "../garmin/bienestar";
 import type { ActividadH } from "./calculos";
 
@@ -18,6 +18,11 @@ export interface FilaActividad extends ActividadH {
   gap_ms?: number | null;
   temp_clima?: number | null;
   clima_estado?: string;
+  /** Migración 0012: humedad (%), sensación térmica (°C) y segundos por zona de FC. */
+  humedad_clima?: number | null;
+  sensacion_clima?: number | null;
+  zonas?: number[] | null;
+  zonas_estado?: string | null;
 }
 
 /** Carrera al aire libre: lo único que tiene clima. Cinta y virtual, no. */
@@ -56,6 +61,7 @@ const nowIso = () => new Date().toISOString();
 
 export class HistoricoStore {
   private columnasGarmin: Promise<boolean> | null = null;
+  private columnas0012: Promise<boolean> | null = null;
 
   constructor(private readonly db: D1Database) {}
 
@@ -69,6 +75,15 @@ export class HistoricoStore {
       .all()
       .then(() => true, () => false);
     return this.columnasGarmin;
+  }
+
+  /** ¿Está la migración 0012 (humedad y zonas)? Sin ella, todo sigue como antes. */
+  conClimaYZonas(): Promise<boolean> {
+    this.columnas0012 ??= this.db
+      .prepare("SELECT humedad_clima, zonas_fc, zonas_estado FROM g_actividades LIMIT 0")
+      .all()
+      .then(() => true, () => false);
+    return this.columnas0012;
   }
 
   /** ¿Está la migración 0010? Sin ella el histórico no existe y se dice. */
@@ -201,12 +216,58 @@ export class HistoricoStore {
   }
 
   /** null = Garmin no tiene clima de esa actividad: no se vuelve a pedir. */
-  async guardarClima(id: number, tempC: number | null): Promise<void> {
+  async guardarClima(id: number, tiempo: Tiempo | number | null): Promise<void> {
+    const t: Tiempo | null =
+      typeof tiempo === "number" ? { tempC: tiempo, sensacionC: null, humedad: null, cielo: null } : tiempo;
+    const estado = t === null || (t.tempC === null && t.humedad === null) ? "sin_datos" : "hecho";
+    if (await this.conClimaYZonas()) {
+      await this.db
+        .prepare(
+          "UPDATE g_actividades SET temp_clima = COALESCE(?1, temp_clima), humedad_clima = ?2, " +
+            "sensacion_clima = ?3, clima_estado = ?4, actualizado_en = ?5 WHERE id = ?6",
+        )
+        .bind(t?.tempC ?? null, t?.humedad ?? null, t?.sensacionC ?? null, estado, nowIso(), id)
+        .run();
+      return;
+    }
     await this.db
       .prepare(
         "UPDATE g_actividades SET temp_clima = ?1, clima_estado = ?2, actualizado_en = ?3 WHERE id = ?4",
       )
-      .bind(tempC, tempC === null ? "sin_datos" : "hecho", nowIso(), id)
+      .bind(t?.tempC ?? null, estado, nowIso(), id)
+      .run();
+  }
+
+  /** Actividades con pulso y sin zonas desde `desde`, de la más nueva a la más vieja. */
+  async pendientesDeZonas(limite: number, desde: string): Promise<Array<{ id: number }>> {
+    if (limite <= 0 || !(await this.conClimaYZonas())) return [];
+    const r = await this.db
+      .prepare(
+        "SELECT id FROM g_actividades WHERE zonas_estado IS NULL AND fc_media IS NOT NULL " +
+          "AND fecha >= ?1 ORDER BY zonas_intentos, fecha DESC LIMIT ?2",
+      )
+      .bind(desde, limite)
+      .all<{ id: number }>();
+    return r.results;
+  }
+
+  async guardarZonas(id: number, zonas: ZonaFc[]): Promise<void> {
+    const s = [1, 2, 3, 4, 5].map((n) => Math.round(zonas.find((z) => z.zona === n)?.segundos ?? 0));
+    const hay = s.some((x) => x > 0);
+    await this.db
+      .prepare("UPDATE g_actividades SET zonas_fc = ?1, zonas_estado = ?2, actualizado_en = ?3 WHERE id = ?4")
+      .bind(hay ? JSON.stringify(s) : null, hay ? "hecho" : "sin_datos", nowIso(), id)
+      .run();
+  }
+
+  async falloZonas(id: number, maxIntentos = 3): Promise<void> {
+    await this.db
+      .prepare(
+        "UPDATE g_actividades SET zonas_intentos = zonas_intentos + 1, " +
+          "zonas_estado = CASE WHEN zonas_intentos + 1 >= ?1 THEN 'error' ELSE NULL END, " +
+          "actualizado_en = ?2 WHERE id = ?3",
+      )
+      .bind(maxIntentos, nowIso(), id)
       .run();
   }
 
@@ -305,6 +366,7 @@ export class HistoricoStore {
     return r.results.map((f) => ({
       ...(f as unknown as FilaActividad),
       mejores: typeof f.mejores === "string" ? (JSON.parse(f.mejores) as Record<string, number>) : null,
+      zonas: typeof f.zonas_fc === "string" ? (JSON.parse(f.zonas_fc) as number[]) : null,
     }));
   }
 

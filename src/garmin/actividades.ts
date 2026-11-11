@@ -147,16 +147,102 @@ function positivo(valor: unknown): number | null {
  * actividad no tiene clima (cinta, sin GPS) o si el dato es imposible.
  */
 export async function leerClima(cliente: GarminCliente, id: number): Promise<number | null> {
-  const datos = await json(cliente, `/activity-service/activity/${id}/weather`);
-  return climaDe(datos);
+  return (await leerTiempo(cliente, id))?.tempC ?? null;
 }
 
 export function climaDe(datos: unknown): number | null {
-  if (!datos || typeof datos !== "object" || Array.isArray(datos)) return null;
-  const f = numero((datos as Record<string, unknown>).temp);
+  return tiempoDe(datos)?.tempC ?? null;
+}
+
+/**
+ * El tiempo que hacía: temperatura, sensación térmica y humedad. En calor y
+ * humedad el pulso sube para el mismo ritmo, así que un pulso alto no se lee
+ * sin esto. Garmin da las temperaturas en °F; se pasan a °C y lo imposible se
+ * descarta en vez de enseñarse.
+ */
+export interface Tiempo {
+  tempC: number | null;
+  sensacionC: number | null;
+  humedad: number | null;
+  cielo: string | null;
+}
+
+function fahrenheitACelsius(valor: unknown): number | null {
+  const f = numero(valor);
   if (f === null) return null;
-  const c = Math.round(((f - 32) * 5) / 9 * 10) / 10;
-  return c >= -30 && c <= 55 ? c : null;
+  const c = Math.round((((f - 32) * 5) / 9) * 10) / 10;
+  return c >= -30 && c <= 60 ? c : null;
+}
+
+export function tiempoDe(datos: unknown): Tiempo | null {
+  if (!datos || typeof datos !== "object" || Array.isArray(datos)) return null;
+  const d = datos as Record<string, unknown>;
+  const humedad = numero(d.relativeHumidity);
+  const t: Tiempo = {
+    tempC: fahrenheitACelsius(d.temp),
+    sensacionC: fahrenheitACelsius(d.apparentTemp),
+    humedad: humedad !== null && humedad >= 0 && humedad <= 100 ? humedad : null,
+    cielo: texto((d.weatherTypeDTO as Record<string, unknown> | undefined)?.desc) || null,
+  };
+  return t.tempC === null && t.humedad === null ? null : t;
+}
+
+export async function leerTiempo(cliente: GarminCliente, id: number): Promise<Tiempo | null> {
+  return tiempoDe(await json(cliente, `/activity-service/activity/${id}/weather`));
+}
+
+/** Segundos en cada zona de FC del reloj, como los calcula Garmin. */
+export interface ZonaFc {
+  zona: number;
+  segundos: number;
+  /** Pulso con el que empieza la zona, si Garmin lo da. */
+  desde: number | null;
+}
+
+export function zonasDe(datos: unknown): ZonaFc[] {
+  const lista = Array.isArray(datos)
+    ? datos
+    : datos && typeof datos === "object" && Array.isArray((datos as Record<string, unknown>).hrTimeInZones)
+      ? ((datos as Record<string, unknown>).hrTimeInZones as unknown[])
+      : [];
+  return lista
+    .map((z) => {
+      const o = (z ?? {}) as Record<string, unknown>;
+      const zona = numero(o.zoneNumber);
+      const segundos = numero(o.secsInZone);
+      if (zona === null || zona < 1 || zona > 5 || segundos === null || segundos < 0) return null;
+      return { zona, segundos, desde: numero(o.zoneLowBoundary) };
+    })
+    .filter((z): z is ZonaFc => z !== null)
+    .sort((a, b) => a.zona - b.zona);
+}
+
+export async function leerZonas(cliente: GarminCliente, id: number): Promise<ZonaFc[]> {
+  return zonasDe(await json(cliente, `/activity-service/activity/${id}/hrTimeInZones`));
+}
+
+/**
+ * Reparto suave / medio / duro: Z1-Z2, Z3 y Z4-Z5. Es lo que se mira para el
+ * «~80 % fácil»: la zona 3 es la que se cuela en los rodajes que no lo son.
+ */
+export function reparto(zonas: Array<{ zona: number; segundos: number }>): {
+  suave: number;
+  medio: number;
+  duro: number;
+  total: number;
+} {
+  const r = { suave: 0, medio: 0, duro: 0, total: 0 };
+  for (const z of zonas) {
+    if (z.zona <= 2) r.suave += z.segundos;
+    else if (z.zona === 3) r.medio += z.segundos;
+    else r.duro += z.segundos;
+    r.total += z.segundos;
+  }
+  return r;
+}
+
+export function porcentaje(parte: number, total: number): string {
+  return total > 0 ? `${Math.round((parte / total) * 100)} %` : "—";
 }
 
 export function normalizarSeries(bruto: unknown): SerieFuerza[] {
@@ -322,6 +408,8 @@ export async function leerActividad(
   avisoVueltas: string | null;
   /** El entreno que se siguió, si se pudo leer: es lo que da nombre a cada paso. */
   entreno: { id: number; nombre: string } | null;
+  tiempo: Tiempo | null;
+  zonas: ZonaFc[];
   /** Nombres de las claves del detalle y de su metadataDTO, para depurar. */
   claves: { detalle: string[]; metadata: string[] };
 }> {
@@ -355,6 +443,11 @@ export async function leerActividad(
   } catch (exc) {
     avisoVueltas = exc instanceof Error ? exc.message : String(exc);
   }
+  // Clima y zonas son complementos: si fallan, la actividad se enseña igual.
+  const [tiempo, zonas] = await Promise.all([
+    leerTiempo(cliente, id).catch(() => null),
+    leerZonas(cliente, id).catch(() => [] as ZonaFc[]),
+  ]);
 
   // Con el entreno, cada vuelta lleva el número y la etiqueta de su paso tal
   // y como los enseña garmin_get_workout. Sin él, el número crudo del reloj.
@@ -384,7 +477,7 @@ export async function leerActividad(
     detalle: Object.keys(objeto(detalle)).sort(),
     metadata: Object.keys(objeto(objeto(detalle).metadataDTO)).sort(),
   };
-  return { actividad, series, avisoSeries, vueltas, avisoVueltas, entreno, claves };
+  return { actividad, series, avisoSeries, vueltas, avisoVueltas, entreno, claves, tiempo, zonas };
 }
 
 // ------------------------------------------------------------------ formato
@@ -523,6 +616,7 @@ export function formatearActividad(
   vueltas: Vuelta[] = [],
   avisoVueltas: string | null = null,
   entreno: { id: number; nombre: string } | null = null,
+  extras: { tiempo?: Tiempo | null; zonas?: ZonaFc[] } = {},
 ): string {
   if (!actividad) return "Garmin no devolvió esa actividad.";
   const lineas = [
@@ -540,6 +634,33 @@ export function formatearActividad(
       .filter(Boolean)
       .join(" · "),
   ];
+  const t = extras.tiempo;
+  if (t) {
+    lineas.push(
+      "Clima: " +
+        [
+          t.tempC !== null ? `${t.tempC.toFixed(0)} °C` : "",
+          t.sensacionC !== null ? `sensación ${t.sensacionC.toFixed(0)} °C` : "",
+          t.humedad !== null ? `humedad ${t.humedad.toFixed(0)} %` : "",
+          t.cielo ?? "",
+        ]
+          .filter(Boolean)
+          .join(" · ") +
+        ` (a las ${actividad.hora}). Con calor y humedad el pulso sube para el mismo ritmo.`,
+    );
+  }
+  const zonas = extras.zonas ?? [];
+  if (zonas.some((z) => z.segundos > 0)) {
+    const r = reparto(zonas);
+    lineas.push(
+      "Zonas de FC (reloj): " +
+        zonas
+          .map((z) => `Z${z.zona} ${duracion(z.segundos)}${z.desde !== null ? ` (≥${z.desde})` : ""}`)
+          .join(" · "),
+      `Reparto: suave Z1-Z2 ${porcentaje(r.suave, r.total)} · medio Z3 ${porcentaje(r.medio, r.total)} · ` +
+        `duro Z4-Z5 ${porcentaje(r.duro, r.total)}.`,
+    );
+  }
 
   const trabajo = series.filter((s) => s.tipo !== "REST");
   if (trabajo.length) {

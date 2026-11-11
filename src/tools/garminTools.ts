@@ -185,10 +185,9 @@ export class GarminTools {
     });
   }
 
-  /** Crea el entreno y, si se le da fecha, lo deja en el calendario. */
-  async crearEntreno(args: Record<string, unknown>): Promise<string> {
-    return this.intentar(async () => {
-      const entrada: EntradaEntreno = {
+  /** Lo común a crear y a actualizar: leer la entrada, convertir porcentajes y construir. */
+  private async construir(args: Record<string, unknown>) {
+    const entrada: EntradaEntreno = {
         nombre: String(args.name ?? args.nombre ?? ""),
         deporte: String(args.sport ?? args.deporte ?? ""),
         pasos: Array.isArray(args.steps)
@@ -198,12 +197,77 @@ export class GarminTools {
             : [],
         descripcion: (args.description ?? args.descripcion ?? null) as string | null,
       };
-      // Los umbrales solo se piden si hacen falta: son cinco llamadas más y la
-      // mayoría de entrenos van con objetivos absolutos.
-      if (["power_pct", "hr_pct", "pace_pct"].some((k) => llevaPorcentaje(entrada.pasos, k))) {
-        entrada.umbrales = await this.umbrales(entrada.deporte);
+    // Los umbrales solo se piden si hacen falta: son cinco llamadas más y la
+    // mayoría de entrenos van con objetivos absolutos.
+    if (["power_pct", "hr_pct", "pace_pct"].some((k) => llevaPorcentaje(entrada.pasos, k))) {
+      entrada.umbrales = await this.umbrales(entrada.deporte);
+    }
+    const lineasConversion = (conversiones: string[]): string[] => {
+      if (!conversiones.length) return [];
+      const lineas = ["Porcentajes convertidos:", ...conversiones.map((c) => `  ${c}`)];
+      const choques = discrepantes(entrada.umbrales ?? { fallos: [] });
+      if (choques.length) {
+        lineas.push(
+          `⚠ Garmin no dice lo mismo que intervals.icu (${choques.join("; ")}). Se ha usado ` +
+            "el de Garmin, que es lo que hay en el reloj.",
+        );
       }
-      const { entreno, conversiones } = construirEntreno(entrada);
+      return lineas;
+    };
+    return { entrada, ...construirEntreno(entrada), lineasConversion };
+  }
+
+  /**
+   * Cambia un entreno que ya existe SIN borrarlo: conserva su id y, con él,
+   * todas sus fechas en el calendario. Es lo que hace falta con un entreno
+   * reutilizado (la caminata de cada día): borrar y crear se llevaría todas sus
+   * fechas, y volver a programarlas a mano es la forma de duplicar sesiones.
+   */
+  async actualizarEntreno(args: Record<string, unknown>): Promise<string> {
+    return this.intentar(async () => {
+      const id = Number(args.workout_id ?? args.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw new EntrenoError("Falta 'workout_id': el id del entreno que quieres cambiar.");
+      }
+      const antes = (await this.json(`/workout-service/workout/${id}`)) as Record<string, unknown> | null;
+      if (!antes || typeof antes !== "object") {
+        throw new EntrenoError(`Garmin no tiene el entreno ${id}.`);
+      }
+      const { entreno, conversiones, lineasConversion } = await this.construir(args);
+      const pasosAntes = contarPasos(
+        ((antes.workoutSegments as Array<Record<string, unknown>> | undefined)?.[0]?.workoutSteps as unknown[]) ?? [],
+      );
+      // Lo que identifica al entreno se conserva; lo demás se sustituye entero.
+      const cuerpo = {
+        ...entreno,
+        workoutId: id,
+        ...(antes.ownerId !== undefined ? { ownerId: antes.ownerId } : {}),
+      };
+      await this.json(`/workout-service/workout/${id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(cuerpo),
+      });
+
+      const escritos = Array.isArray(entreno.workoutSegments[0]?.workoutSteps)
+        ? (entreno.workoutSegments[0]!.workoutSteps as unknown[])
+        : [];
+      const recuento = contarPasos(escritos);
+      return [
+        `Entreno ${id} actualizado en Garmin: «${String(antes.workoutName ?? "")}» → «${entreno.workoutName}».`,
+        `Antes: ${pasosAntes.pasos} pasos escritos · ahora: ${recuento.pasos} pasos escritos, ` +
+          `${recuento.desplegados} en el reloj · duración estimada ${duracion(entreno.estimatedDurationInSecs)}.`,
+        ...lineasConversion(conversiones),
+        "Conserva su id y todas sus fechas del calendario: el reloj recibe la versión nueva en la " +
+          "próxima sincronización. Compruébalo con garmin_get_workout (número de pasos).",
+      ].join("\n");
+    });
+  }
+
+  /** Crea el entreno y, si se le da fecha, lo deja en el calendario. */
+  async crearEntreno(args: Record<string, unknown>): Promise<string> {
+    return this.intentar(async () => {
+      const { entreno, conversiones, lineasConversion } = await this.construir(args);
 
       // Garmin no tiene clave de idempotencia, así que la identidad natural es
       // el nombre: un reintento tras un timeout llega con el mismo, y sin esto
@@ -243,16 +307,7 @@ export class GarminTools {
           `duración estimada ${duracion(entreno.estimatedDurationInSecs)}`,
       ];
 
-      if (conversiones.length) {
-        lineas.push("Porcentajes convertidos:", ...conversiones.map((c) => `  ${c}`));
-        const choques = discrepantes(entrada.umbrales ?? { fallos: [] });
-        if (choques.length) {
-          lineas.push(
-            `⚠ Garmin no dice lo mismo que intervals.icu (${choques.join("; ")}). Se ha usado ` +
-              "el de Garmin, que es lo que hay en el reloj.",
-          );
-        }
-      }
+      lineas.push(...lineasConversion(conversiones));
       lineas.push(
         "Comprueba los pasos con garmin_get_workout: la duración no delata un paso perdido si " +
           "acababa con el botón de vuelta.",
@@ -344,7 +399,10 @@ export class GarminTools {
         throw new EntrenoError("Falta 'activity_id': el id que devuelve garmin_activities.");
       }
       const r = await leerActividad(this.cliente, id);
-      const texto = formatearActividad(r.actividad, r.series, r.avisoSeries, r.vueltas, r.avisoVueltas, r.entreno);
+      const texto = formatearActividad(r.actividad, r.series, r.avisoSeries, r.vueltas, r.avisoVueltas, r.entreno, {
+        tiempo: r.tiempo,
+        zonas: r.zonas,
+      });
       if (args.debug !== true) return texto;
       return (
         `${texto}\n\nClaves del detalle (solo nombres): ${r.claves.detalle.join(", ")}` +

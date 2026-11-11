@@ -19,7 +19,7 @@ leer.
 | `get_log` | Historial de acuerdos, más reciente primero. Nunca se edita ni se borra. |
 | `get_material` / `set_material` | Inventario de lo que el atleta tiene, por categorías, con para qué sirve cada cosa. |
 | `diary_set` / `diary_get` | El diario subjetivo: dolor, síntomas o cualquier escala propia, declarada antes de usarse. |
-| `garmin_weekly_summary` | Volumen, carga y CTL/ATL/TSB por semana, en la escala de carga de Garmin (histórico de D1). |
+| `garmin_weekly_summary` | Volumen, carga y CTL/ATL/TSB por semana, en la escala de carga de Garmin, y el reparto suave/medio/duro por tiempo en zonas de FC (histórico de D1). |
 | `garmin_records` | Mejores marcas por distancia y FC máxima sostenida, de **todo** el histórico. |
 | `garmin_wellness_history` | Bandas de FC en reposo, VFC y sueño (mediana, p10-p90) sobre 120 días, y los últimos 14 en tabla. |
 | `garmin_search_activities` | Buscar en el histórico por fechas, deporte, km o minutos, con el desacople aeróbico. |
@@ -27,10 +27,12 @@ leer.
 | `garmin_sync` | Adelanta la carga del histórico desde Garmin, con presupuesto de llamadas. |
 | `garmin_wellness` | Bienestar en vivo de Garmin (1 a 7 días): readiness, Body Battery, sueño con fases, VFC, FC en reposo, estrés y estado de entrenamiento. |
 | `garmin_thresholds` | LTHR, FC máxima, FTP y ritmo de umbral, con su fuente. |
-| `garmin_activities` / `garmin_activity` | Las actividades como las registró el reloj y, **en fuerza, sus series** (ejercicio, repeticiones, peso). |
+| `garmin_activities` / `garmin_activity` | Las actividades como las registró el reloj; **en fuerza, sus series** (ejercicio, repeticiones, peso); en lo demás, **sus vueltas** con el paso del entreno. Con el clima (temperatura, sensación, humedad) y el tiempo en zonas de FC. |
 | `garmin_list_calendar` | Qué hay escrito en el calendario de Garmin entre dos fechas. |
 | `garmin_create_workout` / `garmin_schedule_workout` | Escribe un entreno en Garmin, paso a paso, y lo programa. |
-| `garmin_get_workout` / `garmin_list_workouts` / `garmin_delete_workout` | Leer, listar y borrar entrenos de Garmin. |
+| `garmin_get_workout` / `garmin_list_workouts` / `garmin_delete_workout` | Leer, listar y borrar entrenos de Garmin (borrar se lleva todas sus fechas). |
+| `garmin_update_workout` | Cambiar un entreno sin borrarlo: conserva su id y todas sus fechas. |
+| `garmin_unschedule_workout` | Quitar una sola fecha del calendario, sin tocar el entreno ni sus otras fechas. |
 
 **Con intervals.icu (opcional, solo si está configurado):** `get_wellness`,
 `set_wellness`, `get_activities`, `search_activities`, `get_records`,
