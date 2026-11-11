@@ -237,12 +237,34 @@ export class GarminTools {
       const pasosAntes = contarPasos(
         ((antes.workoutSegments as Array<Record<string, unknown>> | undefined)?.[0]?.workoutSteps as unknown[]) ?? [],
       );
-      // Lo que identifica al entreno se conserva; lo demás se sustituye entero.
-      const cuerpo = {
-        ...entreno,
+      // Se parte del entreno TAL COMO LO DEVUELVE Garmin y se cambia lo que toca.
+      // Con un cuerpo construido de cero, Garmin aceptaba los pasos pero perdía el
+      // deporte (probado el 10/11/2026: el entreno quedaba sin sportType). Lo que
+      // el entreno ya tenía (id, dueño, segmento) se conserva; si cambia de
+      // deporte, manda el nuevo.
+      const segmentoAntes =
+        ((antes.workoutSegments as Array<Record<string, unknown>> | undefined)?.[0] ?? {}) as Record<string, unknown>;
+      const mismoDeporte =
+        String((antes.sportType as Record<string, unknown> | undefined)?.sportTypeKey ?? "") ===
+        entreno.sportType.sportTypeKey;
+      const deporte = mismoDeporte ? antes.sportType : entreno.sportType;
+      const cuerpo: Record<string, unknown> = {
+        ...antes,
         workoutId: id,
-        ...(antes.ownerId !== undefined ? { ownerId: antes.ownerId } : {}),
+        workoutName: entreno.workoutName,
+        sportType: deporte,
+        estimatedDurationInSecs: entreno.estimatedDurationInSecs,
+        workoutSegments: [
+          {
+            ...segmentoAntes,
+            segmentOrder: 1,
+            sportType: mismoDeporte ? (segmentoAntes.sportType ?? deporte) : deporte,
+            workoutSteps: entreno.workoutSegments[0]!.workoutSteps,
+          },
+        ],
       };
+      if ("description" in entreno) cuerpo.description = entreno.description;
+      else delete cuerpo.description;
       await this.json(`/workout-service/workout/${id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -253,7 +275,20 @@ export class GarminTools {
         ? (entreno.workoutSegments[0]!.workoutSteps as unknown[])
         : [];
       const recuento = contarPasos(escritos);
+      // Se relee: lo que importa es lo que Garmin guardó, no lo que se le mandó.
+      const despues = (await this.json(`/workout-service/workout/${id}`)) as Record<string, unknown> | null;
+      const deporteGuardado = String(
+        (despues?.sportType as Record<string, unknown> | undefined)?.sportTypeKey ?? "",
+      );
+      const avisoDeporte =
+        deporteGuardado === entreno.sportType.sportTypeKey
+          ? []
+          : [
+              `⚠ Garmin guardó el entreno con deporte «${deporteGuardado || "ninguno"}» en vez de ` +
+                `«${entreno.sportType.sportTypeKey}». Revísalo con garmin_get_workout antes de que llegue al reloj.`,
+            ];
       return [
+        ...avisoDeporte,
         `Entreno ${id} actualizado en Garmin: «${String(antes.workoutName ?? "")}» → «${entreno.workoutName}».`,
         `Antes: ${pasosAntes.pasos} pasos escritos · ahora: ${recuento.pasos} pasos escritos, ` +
           `${recuento.desplegados} en el reloj · duración estimada ${duracion(entreno.estimatedDurationInSecs)}.`,
