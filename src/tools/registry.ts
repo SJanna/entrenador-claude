@@ -1397,9 +1397,13 @@ export function buildTools(
       name: "garmin_activity",
       title: "Una actividad, con sus series",
       description:
-        "El detalle de una actividad de Garmin y, si fue de FUERZA, sus series: ejercicio, " +
+        "El detalle de una actividad de Garmin. Si fue de FUERZA, sus series: ejercicio, " +
         "repeticiones, peso y tiempo, una a una, más el volumen total levantado: es lo " +
-        "que hace falta para subir una escalera de carga variable a variable. La columna «enum " +
+        "que hace falta para subir una escalera de carga variable a variable. Si fue de " +
+        "carrera, bici, natación o caminata, sus VUELTAS una a una: tipo (calentamiento, " +
+        "trabajo, recuperación…), número de paso del entreno, tiempo, distancia, ritmo, GAP, " +
+        "FC media y máxima, cadencia y desnivel. Con ellas se evalúa cada serie contra lo " +
+        "prescrito, no la media de la sesión. La columna «enum " +
         "de Garmin» es lo que hay que pasar como 'category' y 'exercise' al prescribir para " +
         "que el reloj enseñe el nombre del ejercicio.",
       inputSchema: {
