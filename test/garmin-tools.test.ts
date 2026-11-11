@@ -371,7 +371,9 @@ describe("cambiar un entreno sin perder sus fechas", () => {
     workoutId: 1704873617,
     ownerId: 99,
     workoutName: "Caminata 20 min (barrio)",
-    workoutSegments: [{ workoutSteps: [{ type: "ExecutableStepDTO" }] }],
+    sportType: { sportTypeId: 9, sportTypeKey: "walking", displayOrder: 9 },
+    author: { displayName: "x" },
+    workoutSegments: [{ segmentOrder: 1, sportType: { sportTypeId: 9, sportTypeKey: "walking" }, workoutSteps: [{ type: "ExecutableStepDTO" }] }],
   };
 
   it("hace PUT sobre el mismo id, conserva el dueño y cuenta los pasos de antes y ahora", async () => {
@@ -387,11 +389,40 @@ describe("cambiar un entreno sin perder sus fechas", () => {
     });
     const put = llamadas.find((l) => l.metodo === "PUT");
     expect(put?.ruta).toBe("/workout-service/workout/1704873617");
-    expect(put?.cuerpo).toMatchObject({ workoutId: 1704873617, ownerId: 99, workoutName: "Caminata 25 min (barrio)" });
+    expect(put?.cuerpo).toMatchObject({
+      workoutId: 1704873617,
+      ownerId: 99,
+      author: { displayName: "x" },
+      workoutName: "Caminata 25 min (barrio)",
+      // El deporte se conserva tal como lo tenía Garmin, también en el segmento.
+      sportType: { sportTypeKey: "walking" },
+      workoutSegments: [{ sportType: { sportTypeKey: "walking" } }],
+    });
+    expect((put?.cuerpo as { workoutSegments: Array<{ workoutSteps: unknown[] }> }).workoutSegments[0]!.workoutSteps).toHaveLength(2);
     expect(llamadas.some((l) => l.metodo === "DELETE" || l.metodo === "POST")).toBe(false);
     expect(texto).toContain("«Caminata 20 min (barrio)» → «Caminata 25 min (barrio)»");
     expect(texto).toContain("Antes: 1 pasos escritos · ahora: 2 pasos escritos");
     expect(texto).toContain("todas sus fechas");
+  });
+
+  it("si Garmin pierde el deporte al guardar, lo dice", async () => {
+    let guardado: unknown = VIEJO;
+    const llamadas: string[] = [];
+    const falso = {
+      async api(ruta: string, init: RequestInit = {}) {
+        llamadas.push(`${init.method ?? "GET"} ${ruta}`);
+        if (init.method === "PUT") {
+          guardado = { ...(JSON.parse(String(init.body)) as object), sportType: null };
+          return new Response(null, { status: 204 });
+        }
+        return new Response(JSON.stringify(guardado), { status: 200 });
+      },
+    };
+    const tools = new GarminTools(falso as unknown as GarminCliente, () => "2026-09-16");
+    const texto = await tools.actualizarEntreno({
+      workout_id: 1704873617, name: "Caminata", sport: "Walk", steps: [{ label: "Caminar", duration: "20m" }],
+    });
+    expect(texto).toMatch(/^⚠ Garmin guardó el entreno con deporte «ninguno» en vez de «walking»/);
   });
 
   it("un entreno mal escrito no toca el que hay", async () => {
